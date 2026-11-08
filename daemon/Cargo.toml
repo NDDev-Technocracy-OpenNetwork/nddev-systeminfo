@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.95"
 license = "AGPL-3.0-or-later"
 description = "Resource-frugal system metrics daemon for Linux, macOS, and Windows"
-repository = "https://github.com/NDDev-OpenNetwork/rldyour-sysinfo"
+repository = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo"
 
 [target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 nvml-wrapper = { version = "0.13.0", optional = true }
