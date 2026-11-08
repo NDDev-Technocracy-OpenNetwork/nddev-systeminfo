@@ -29,6 +29,52 @@ unsafe extern "system" {
     fn GetCurrentThreadId() -> u32;
 }
 struct Attachment(u32, u32);
+pub struct ProcessResources {
+    pub working_set_bytes: usize,
+    pub private_commit_bytes: usize,
+    pub gdi_handles: u32,
+    pub user_handles: u32,
+}
+#[repr(C)]
+struct MemoryCounters {
+    size: u32,
+    faults: u32,
+    peak_working: usize,
+    working: usize,
+    peak_paged: usize,
+    paged: usize,
+    peak_nonpaged: usize,
+    nonpaged: usize,
+    pagefile: usize,
+    peak_pagefile: usize,
+    private: usize,
+}
+#[link(name = "psapi")]
+unsafe extern "system" {
+    fn GetProcessMemoryInfo(process: Handle, counters: *mut MemoryCounters, size: u32) -> i32;
+}
+#[link(name = "user32")]
+unsafe extern "system" {
+    fn GetGuiResources(process: Handle, flags: u32) -> u32;
+}
+pub fn process_resources() -> io::Result<ProcessResources> {
+    // SAFETY: the current-process pseudo handle is borrowed; a correctly sized,
+    // initialized SDK-layout buffer lives through this synchronous read.
+    unsafe {
+        let process = -1_isize as Handle;
+        let mut counters: MemoryCounters = std::mem::zeroed();
+        counters.size = size_of::<MemoryCounters>() as u32;
+        if GetProcessMemoryInfo(process, &mut counters, counters.size) == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(ProcessResources {
+            working_set_bytes: counters.working,
+            private_commit_bytes: counters.private,
+            gdi_handles: GetGuiResources(process, 0),
+            user_handles: GetGuiResources(process, 1),
+        })
+    }
+}
 impl Drop for Attachment {
     fn drop(&mut self) {
         unsafe {

@@ -157,6 +157,12 @@ mod desktop {
         let id = cpu.latest.as_ref().unwrap().detail.cores[0].id;
         let core_key = format!("core:{id}");
         let core = store.view(&Selection::parse(&core_key).unwrap(), 3600, 512);
+        let resources = || {
+            let r = tray::acceptance::process_resources().unwrap();
+            serde_json::json!({"working_set_bytes":r.working_set_bytes,"private_commit_bytes":r.private_commit_bytes,"gdi_handles":r.gdi_handles,"user_handles":r.user_handles})
+        };
+        let baseline = resources();
+        let mut observations = Vec::new();
         for (code, theme) in [
             ("en", "light"),
             ("ru", "dark"),
@@ -200,6 +206,7 @@ mod desktop {
                     );
                     thread::sleep(Duration::from_millis(10));
                 }
+                let opened = resources();
                 assert!(tray::acceptance::click_dashboard(11000).unwrap());
                 assert_eq!(
                     receiver.recv_timeout(Duration::from_secs(3)).unwrap(),
@@ -218,6 +225,7 @@ mod desktop {
                     assert!(Instant::now() < deadline, "closed analysis HWND leaked");
                     thread::sleep(Duration::from_millis(10));
                 }
+                opened
             });
             tray.run(|event, proxy| {
                 if let tray::Event::Command(id) = event {
@@ -236,8 +244,10 @@ mod desktop {
                 }
             })
             .unwrap();
-            photographer.join().unwrap();
+            let opened = photographer.join().unwrap();
+            observations.push(serde_json::json!({"locale":code,"open":opened,"after_window_and_tray_close":resources()}));
         }
+        fs::write(artifacts.join("resources.json"), serde_json::to_vec_pretty(&serde_json::json!({"scope":"native-control-surface","baseline":baseline,"observations":observations})).unwrap()).unwrap();
     }
 }
 fn main() {

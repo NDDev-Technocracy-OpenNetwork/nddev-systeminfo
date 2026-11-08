@@ -16,6 +16,26 @@ async function until(condition) {
     }
 }
 function assert(condition, message) { if (!condition) throw new Error(message); }
+function processResources(pid) {
+    const read = path => {
+        const [, bytes] = Gio.File.new_for_path(path).load_contents(null);
+        return new TextDecoder().decode(bytes);
+    };
+    const sample = pid => {
+        const memory = read(`/proc/${pid}/smaps_rollup`);
+        return {pss_kib: Number(memory.match(/^Pss:\s+(\d+)/m)[1]), descriptors: Gio.File.new_for_path(`/proc/${pid}/fd`).enumerate_children('standard::name', Gio.FileQueryInfoFlags.NONE, null)};
+    };
+    const own = sample(pid);
+    let fds = 0;
+    try { while (own.descriptors.next_file(null)) ++fds; } finally { own.descriptors.close(null); }
+    let children = 0, childPss = 0;
+    for (const child of read(`/proc/${pid}/task/${pid}/children`).trim().split(/\s+/).filter(Boolean)) {
+        try {
+            const info = sample(child); childPss += info.pss_kib; ++children; info.descriptors.close(null);
+        } catch { /* A short-lived owned configuration helper can already exit. */ }
+    }
+    return {ui_pss_kib: own.pss_kib, child_pss_kib: childPss, children, descriptors: fds};
+}
 async function command(argv) {
     const process = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
     return await new Promise((resolve, reject) => process.communicate_utf8_async(null, null, (source, result) => {
@@ -100,12 +120,14 @@ async function exercise() {
     }
     const core = extension._settings.text('logical_core').replace('{id}', '0');
     await ready(core);
+    const resources = {window_open: processResources(analysisPid)};
     await screenshot('analysis-cpu'); captures.push('analysis-cpu');
     assert((await inspect(core, core)).acted, 'logical core button did not activate');
     await ready(`${core} ·`);
     const pause = extension._settings.text('pause');
     assert((await inspect(pause, pause)).acted, 'pause did not activate');
     await ready(extension._settings.text('paused'));
+    resources.paused = processResources(analysisPid);
     const copy = extension._settings.text('copy_chart');
     assert((await inspect(copy, copy)).acted, 'analysis copy did not activate');
     const clipboardDeadline = GLib.get_monotonic_time() + 5_000_000;
@@ -122,6 +144,7 @@ async function exercise() {
     const close = extension._settings.text('close');
     assert((await inspect(close, close)).acted, 'close did not activate');
     await until(() => !Gio.File.new_for_path(`/proc/${analysisPid}`).query_exists(null));
+    resources.window_process_exited = true;
     indicator._cellItems[1].button.emit('clicked', 1);
     const reopenedWindow = () => global.get_window_actors().find(actor => actor.meta_window.get_title() === analysisTitle && actor.meta_window.get_pid() !== analysisPid);
     await until(() => reopenedWindow());
@@ -160,7 +183,7 @@ async function exercise() {
     await until(() => indicator._sample === null && !indicator._copyItem.reactive);
     assert(indicator._rowItems.every(row => row.value.text === '—'), 'offline UI retained a stale reading');
     indicator.menu.open(); await screenshot('offline-ar'); captures.push('offline-ar');
-    return {passed: true, captures, lifecycle: 'enable/read/analysis/core/pause/copy/resume/close/settings/clipboard/disable/re-enable/offline', high_contrast: true};
+    return {passed: true, captures, resources, lifecycle: 'enable/read/analysis/core/pause/copy/resume/close/settings/clipboard/disable/re-enable/offline', high_contrast: true};
 }
 export default class Acceptance extends Extension {
     enable() {
