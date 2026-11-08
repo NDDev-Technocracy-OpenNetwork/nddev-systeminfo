@@ -590,17 +590,26 @@ fn test() -> Result {
     Ok(())
 }
 
-fn build_binaries(release: bool) -> Result<BTreeMap<String, PathBuf>> {
+fn build_targets(
+    package: &str,
+    binary: Option<&str>,
+    release: bool,
+) -> Result<BTreeMap<String, PathBuf>> {
     use std::io::{BufRead, BufReader};
     let mut cargo = Command::new("cargo");
     cargo.args([
         "build",
         "--locked",
-        "--workspace",
+        "--package",
+        package,
         "--all-features",
-        "--bins",
         "--message-format=json",
     ]);
+    if let Some(binary) = binary {
+        cargo.args(["--bin", binary]);
+    } else {
+        cargo.arg("--bins");
+    }
     if release {
         cargo.arg("--release");
     }
@@ -629,6 +638,12 @@ fn build_binaries(release: bool) -> Result<BTreeMap<String, PathBuf>> {
     if !build.wait()?.success() {
         return Err("native binary build failed".into());
     }
+    Ok(binaries)
+}
+fn build_binaries(release: bool) -> Result<BTreeMap<String, PathBuf>> {
+    // A running tool must never rebuild/replace its own executable on Windows.
+    // Product and acceptance targets have separate, explicit build receipts.
+    let binaries = build_targets("nddev-systeminfo", None, release)?;
     fs::create_dir_all(".tools")?;
     fs::write(
         if release {
@@ -650,7 +665,9 @@ fn run() -> Result {
         Some("ui-linux-session") => linux_ui::session(),
         Some("ui-windows") => {
             let binaries = build_binaries(false)?;
-            let status = Command::new(&binaries["windows-ui-acceptance"])
+            let acceptance =
+                build_targets("systeminfo-tools", Some("windows-ui-acceptance"), false)?;
+            let status = Command::new(&acceptance["windows-ui-acceptance"])
                 .env(
                     "CARGO_BIN_EXE_nddev-systeminfod",
                     &binaries["nddev-systeminfod"],
