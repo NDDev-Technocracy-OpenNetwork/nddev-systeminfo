@@ -59,6 +59,11 @@ pub struct Client {
     timeout: Duration,
 }
 impl Client {
+    /// An independent handle only shuts down this connection. It lets a native
+    /// UI cancel a sleeping read immediately when settings change or it exits.
+    pub fn cancellation(&self) -> io::Result<Cancellation> {
+        Ok(Cancellation(self.reader.get_ref().socket.try_clone()?))
+    }
     pub fn connect(path: &Path, interval: u64, timeout: Duration) -> Result<Self, ClientError> {
         let cadence = cadence(interval).ok_or(ClientError::InvalidConfiguration)?;
         if !path.is_absolute() || timeout.is_zero() || timeout > Duration::from_secs(60) {
@@ -111,6 +116,13 @@ impl Client {
                 return Ok(snapshot);
             }
         }
+    }
+}
+
+pub struct Cancellation(Socket);
+impl Cancellation {
+    pub fn cancel(&self) {
+        let _ = self.0.shutdown(std::net::Shutdown::Both);
     }
 }
 
@@ -222,5 +234,19 @@ mod tests {
             matches!(client.next_sample(), Err(ClientError::Io(error)) if matches!(error.kind(), io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock))
         );
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+    #[test]
+    fn native_ui_cancellation_interrupts_an_idle_socket() {
+        let peer = Peer::start(|mut socket| {
+            let mut byte = [0];
+            let _ = socket.read(&mut byte);
+        });
+        let mut client = Client::connect(&peer.path, 0, Duration::from_secs(5)).unwrap();
+        let cancellation = client.cancellation().unwrap();
+        let (done, wait) = std::sync::mpsc::sync_channel(1);
+        let task = thread::spawn(move || done.send(client.next_sample().is_err()).unwrap());
+        cancellation.cancel();
+        assert!(wait.recv_timeout(Duration::from_secs(1)).unwrap());
+        task.join().unwrap();
     }
 }

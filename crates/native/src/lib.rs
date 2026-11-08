@@ -4,3 +4,5 @@ mod collector;
 mod source;
 pub mod transport;
 pub use collector::Collector;
+#[cfg(target_os = "windows")]
+pub mod tray;

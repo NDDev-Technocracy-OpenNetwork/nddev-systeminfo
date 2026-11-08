@@ -1,6 +1,7 @@
 //! Reproducible source checks, tools and packaging. Run builds on a build host.
 use serde::Deserialize;
 mod linux_ui;
+mod resources;
 use std::{
     collections::BTreeMap,
     error::Error,
@@ -72,6 +73,75 @@ fn digest(path: &Path) -> Result<String> {
         .map(|value| value.to_ascii_lowercase())
         .ok_or_else(|| "artifact digest is missing".into())
 }
+fn release_asset(source: &str, destination: &Path) -> Result {
+    let (repository, release) = source
+        .strip_prefix("https://github.com/")
+        .and_then(|source| source.split_once("/releases/download/"))
+        .ok_or("tool source must be an official GitHub release")?;
+    let (tag, name) = release.split_once('/').ok_or("invalid release source")?;
+    let request = |url: &str, accept: &str| {
+        let mut curl = Command::new("curl");
+        curl.args([
+            "--fail",
+            "--location",
+            "--silent",
+            "--show-error",
+            "--connect-timeout",
+            "10",
+            "--max-time",
+            "60",
+            "--header",
+            accept,
+        ]);
+        // CI supplies a contents-read token. It never enters error arguments or
+        // a receipt; curl strips Authorization when following a foreign host.
+        if let Some(token) = std::env::var_os("GH_TOKEN") {
+            let mut header = std::ffi::OsString::from("Authorization: Bearer ");
+            header.push(token);
+            curl.arg("--header").arg(header);
+        }
+        curl.arg(url);
+        curl
+    };
+    let metadata = request(
+        &format!("https://api.github.com/repos/{repository}/releases/tags/{tag}"),
+        "Accept: application/vnd.github+json",
+    )
+    .output()?;
+    if !metadata.status.success() {
+        return Err(format!(
+            "cannot read tool release: {repository}@{tag} ({})",
+            metadata.status
+        )
+        .into());
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(&metadata.stdout)?;
+    let assets: Vec<_> = metadata["assets"]
+        .as_array()
+        .ok_or("release assets missing")?
+        .iter()
+        .filter(|asset| asset["name"].as_str() == Some(name))
+        .collect();
+    if assets.len() != 1 {
+        return Err("tool release asset is missing or ambiguous".into());
+    }
+    let id = assets[0]["id"].as_u64().ok_or("invalid release asset id")?;
+    let result = request(
+        &format!("https://api.github.com/repos/{repository}/releases/assets/{id}"),
+        "Accept: application/octet-stream",
+    )
+    .arg("--output")
+    .arg(destination)
+    .output()?;
+    if !result.status.success() {
+        return Err(format!(
+            "cannot fetch tool asset: {repository}@{tag}/{name} ({})",
+            result.status
+        )
+        .into());
+    }
+    Ok(())
+}
 fn setup() -> Result {
     let tools: Toolchain = toml::from_str(include_str!("../toolchain.toml"))?;
     let host = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
@@ -96,18 +166,7 @@ fn setup() -> Result {
         }
         fs::create_dir_all(&folder)?;
         let archive = folder.join("tool.tar.gz");
-        command(
-            "curl",
-            &[
-                "--fail",
-                "--location",
-                "--silent",
-                "--show-error",
-                "--output",
-                archive.to_str().unwrap(),
-                &artifact.url,
-            ],
-        )?;
+        release_asset(&artifact.url, &archive)?;
         if digest(&archive)? != artifact.sha256 {
             return Err(format!("checksum mismatch: {} {}", tool.name, tool.version).into());
         }
@@ -201,6 +260,8 @@ fn generate() -> Result {
     fs::write("extension/resources/ui.json", ui_resource()?)?;
     fs::write("extension/lib/contract.js", js_contract()?)?;
     fs::write("macos/Sample.swift", swift_contract()?)?;
+    fs::create_dir_all("assets")?;
+    fs::write("assets/brand-mask-64.bin", brand_mask()?)?;
     fs::write("extension/resources/brand-symbolic.svg", brand_svg())?;
     Ok(())
 }
@@ -218,6 +279,69 @@ fn brand_svg() -> String {
             .map(|shape| format!("<path fill=\"currentColor\" d=\"{}\"/>", shape.d))
             .collect::<String>()
     )
+}
+fn brand_mask() -> Result<Vec<u8>> {
+    use nddev_opennetwork_design_tokens::BRAND_MARK;
+    let mut polygons = Vec::new();
+    for shape in BRAND_MARK.shapes {
+        if shape
+            .d
+            .chars()
+            .any(|c| c.is_alphabetic() && !['M', 'L', 'Z'].contains(&c))
+        {
+            return Err("brand projection requires the released polygon geometry".into());
+        }
+        let numbers: Vec<f64> = shape
+            .d
+            .replace(['M', 'L', 'Z', ','], " ")
+            .split_whitespace()
+            .map(str::parse)
+            .collect::<std::result::Result<_, _>>()?;
+        if !numbers.len().is_multiple_of(2) {
+            return Err("invalid brand polygon".into());
+        }
+        polygons.push(
+            numbers
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|point| (point[0], point[1]))
+                .collect::<Vec<_>>(),
+        );
+    }
+    let mut mask = vec![0; 64 * 64];
+    for y in 0..64 {
+        for x in 0..64 {
+            let mut coverage = 0;
+            for sy in 0..4 {
+                for sx in 0..4 {
+                    let px = f64::from(BRAND_MARK.min_x)
+                        + (x as f64 + (f64::from(sx) + 0.5) / 4.0) * f64::from(BRAND_MARK.width)
+                            / 64.0;
+                    let py = f64::from(BRAND_MARK.min_y)
+                        + (y as f64 + (f64::from(sy) + 0.5) / 4.0) * f64::from(BRAND_MARK.height)
+                            / 64.0;
+                    if polygons.iter().any(|polygon| {
+                        let mut inside = false;
+                        let mut previous = *polygon.last().expect("nonempty released polygon");
+                        for &(a, b) in polygon {
+                            if (b > py) != (previous.1 > py)
+                                && px < (previous.0 - a) * (py - b) / (previous.1 - b) + a
+                            {
+                                inside = !inside;
+                            }
+                            previous = (a, b);
+                        }
+                        inside
+                    }) {
+                        coverage += 1;
+                    }
+                }
+            }
+            mask[y * 64 + x] = (coverage * 255 / 16) as u8;
+        }
+    }
+    Ok(mask)
 }
 fn js_contract() -> Result<String> {
     use serde_json::{Map, Value};
@@ -414,6 +538,9 @@ fn check() -> Result {
     if fs::read_to_string("macos/Sample.swift")? != swift_contract()? {
         return Err("native Swift wire contract drifted; run just generate".into());
     }
+    if fs::read("assets/brand-mask-64.bin")? != brand_mask()? {
+        return Err("native icon mask drifted; run just generate".into());
+    }
     if fs::read_to_string("extension/resources/brand-symbolic.svg")? != brand_svg() {
         return Err("native brand mark drifted; run just generate".into());
     }
@@ -530,17 +657,26 @@ fn test() -> Result {
     Ok(())
 }
 
-fn build_binaries(release: bool) -> Result<BTreeMap<String, PathBuf>> {
+fn build_targets(
+    package: &str,
+    binary: Option<&str>,
+    release: bool,
+) -> Result<BTreeMap<String, PathBuf>> {
     use std::io::{BufRead, BufReader};
     let mut cargo = Command::new("cargo");
     cargo.args([
         "build",
         "--locked",
-        "--workspace",
+        "--package",
+        package,
         "--all-features",
-        "--bins",
         "--message-format=json",
     ]);
+    if let Some(binary) = binary {
+        cargo.args(["--bin", binary]);
+    } else {
+        cargo.arg("--bins");
+    }
     if release {
         cargo.arg("--release");
     }
@@ -569,6 +705,12 @@ fn build_binaries(release: bool) -> Result<BTreeMap<String, PathBuf>> {
     if !build.wait()?.success() {
         return Err("native binary build failed".into());
     }
+    Ok(binaries)
+}
+fn build_binaries(release: bool) -> Result<BTreeMap<String, PathBuf>> {
+    // A running tool must never rebuild/replace its own executable on Windows.
+    // Product and acceptance targets have separate, explicit build receipts.
+    let binaries = build_targets("nddev-systeminfo", None, release)?;
     fs::create_dir_all(".tools")?;
     fs::write(
         if release {
@@ -588,6 +730,23 @@ fn run() -> Result {
         Some("test") => test(),
         Some("ui-linux") => linux_ui::run(),
         Some("ui-linux-session") => linux_ui::session(),
+        Some("ui-windows") => {
+            let binaries = build_binaries(false)?;
+            let acceptance =
+                build_targets("systeminfo-tools", Some("windows-ui-acceptance"), false)?;
+            let status = Command::new(&acceptance["windows-ui-acceptance"])
+                .env(
+                    "CARGO_BIN_EXE_nddev-systeminfod",
+                    &binaries["nddev-systeminfod"],
+                )
+                .status()?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err("native Windows UI acceptance failed".into())
+            }
+        }
+        Some("measure") => resources::measure(),
         _ => Err("usage: systeminfo-tools <setup|generate|check|test>".into()),
     }
 }

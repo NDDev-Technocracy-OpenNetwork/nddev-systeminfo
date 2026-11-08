@@ -34,6 +34,27 @@ impl Visit for Fields {
     }
 }
 struct Json;
+fn envelope(mut fields: Map<String, Value>, severity: &str) -> Result<Value, fmt::Error> {
+    let mut timestamp = String::new();
+    SystemTime.format_time(&mut Writer::new(&mut timestamp))?;
+    fields.insert("timestamp".into(), timestamp.into());
+    fields.insert("severity".into(), severity.into());
+    fields.insert("service.name".into(), "nddev-systeminfo".into());
+    fields.insert("deployment.environment.name".into(), "local".into());
+    Ok(Value::Object(fields))
+}
+/// Startup failures also have the same local envelope, even before a valid log
+/// level exists or when logging was explicitly disabled. CLI sample stdout stays
+/// reserved for its machine-readable contract.
+pub fn failure(message: &str) {
+    let mut fields = Map::new();
+    fields.insert("event.name".into(), "systeminfo.failed".into());
+    fields.insert("error.type".into(), "runtime".into());
+    fields.insert("message".into(), message.into());
+    if let Ok(record) = envelope(fields, "ERROR") {
+        eprintln!("{record}");
+    }
+}
 impl<S, N> FormatEvent<S, N> for Json
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
@@ -45,21 +66,13 @@ where
         mut writer: Writer<'_>,
         event: &Event<'_>,
     ) -> fmt::Result {
-        let mut timestamp = String::new();
-        SystemTime.format_time(&mut Writer::new(&mut timestamp))?;
         let mut fields = Fields(Map::new());
         event.record(&mut fields);
-        fields.0.insert("timestamp".into(), timestamp.into());
-        fields
-            .0
-            .insert("severity".into(), event.metadata().level().as_str().into());
-        fields
-            .0
-            .insert("service.name".into(), "nddev-systeminfo".into());
-        fields
-            .0
-            .insert("deployment.environment.name".into(), "local".into());
-        writeln!(writer, "{}", Value::Object(fields.0))
+        writeln!(
+            writer,
+            "{}",
+            envelope(fields.0, event.metadata().level().as_str())?
+        )
     }
 }
 pub fn init(level: &str) {

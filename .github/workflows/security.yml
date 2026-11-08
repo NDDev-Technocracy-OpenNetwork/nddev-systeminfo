@@ -1,0 +1,15 @@
+name: Security
+
+on:
+  schedule:
+    - cron: '19 3 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  scan:
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/security.yml@10d15966361c89bbf092a67023dd1476447ca2b2
+    permissions:
+      contents: read
+      issues: write
