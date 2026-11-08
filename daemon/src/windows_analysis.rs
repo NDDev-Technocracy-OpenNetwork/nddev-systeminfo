@@ -59,6 +59,7 @@ struct Limits {
 struct State {
     config: Config,
     catalog: Catalog,
+    appearance: (bool, bool),
     resource: Resource,
     open: bool,
     paused: bool,
@@ -78,9 +79,11 @@ impl State {
                 .expect("checked native resources");
         let range = resource.analysis.history_seconds;
         let catalog = Catalog::load(&config.display.locale, &[&tray::system_language()]);
+        let (dark, contrast, _) = tray::system_appearance();
         Self {
             config,
             catalog,
+            appearance: (dark, contrast),
             resource,
             open: false,
             paused: false,
@@ -108,6 +111,14 @@ pub(super) struct AnalysisUI {
     worker: Option<(Shared, thread::JoinHandle<()>)>,
 }
 impl AnalysisUI {
+    pub(super) fn appearance_changed(&mut self) {
+        if let Some((shared, _)) = &self.worker {
+            let mut state = shared.0.lock().unwrap();
+            let (dark, contrast, _) = tray::system_appearance();
+            state.appearance = (dark, contrast);
+            self.proxy.dashboard(state.open.then(|| model(&state)));
+        }
+    }
     pub(super) fn new(proxy: Proxy) -> Self {
         Self {
             proxy,
@@ -416,7 +427,7 @@ fn value(value: Option<f64>, unit: &str) -> String {
 fn model(s: &State) -> Model {
     let c = &s.catalog;
     let display = &s.config.display;
-    let (dark, contrast, _) = tray::system_appearance();
+    let (dark, contrast) = s.appearance;
     let theme = ui::theme(display, dark, contrast);
     let colors = Colors::resolve(theme, Direction::On);
     let rgb = |c: nddev_opennetwork_design_tokens::Color| {

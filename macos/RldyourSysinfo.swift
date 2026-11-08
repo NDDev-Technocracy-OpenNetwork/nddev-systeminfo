@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var language = "en"
     private var clientGeneration: UInt64 = 0
     private var loading = false
+    private var reloadAgain = false
     private var saving = false
     private var loadFailed = false
     private var watcher: DispatchSourceFileSystemObject?
@@ -93,9 +94,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         await reload()
     }
     private func reload() async {
-        guard !loading, !saving else { return }
+        guard !loading, !saving else { reloadAgain = true; return }
         loading = true
-        defer { loading = false }
+        defer {
+            loading = false
+            if reloadAgain { reloadAgain = false; Task { await reload() } }
+        }
         do {
             let new = try await cli.load()
             let changed = config != new

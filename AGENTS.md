@@ -18,4 +18,5 @@ Run build-free `just check` on the coding host. Builds, tests, applications
 and visual acceptance run on approved build hosts or public CI runners. Preserve immutable
 releases, settings, disabled state and the single owner of every native endpoint.
 Keep public source generic; device inventories, credentials and private runtime
-evidence stay outside this repository. Track implementation and acceptance in #39.
+evidence stay outside this repository. Track native analysis implementation and
+acceptance in #55; #39 retains the completed standalone rollout record.

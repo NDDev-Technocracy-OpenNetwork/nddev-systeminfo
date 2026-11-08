@@ -150,7 +150,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Err(_) => state.notice = Some("error"),
             },
-            Event::AppearanceChanged => { state.refresh_icon(); }
+            Event::AppearanceChanged => { state.refresh_icon(); analysis.appearance_changed(); }
         }
         analysis.configure(&state.config);
         proxy.update(state.model());

@@ -350,7 +350,12 @@ impl Surface {
                         if self.model.rtl { 0x00400000 } else { 0 },
                         class.as_ptr(),
                         wide(&text).as_ptr(),
-                        0x50010000 | if choice { 0x00200000 | 3 } else { 0x0000000b },
+                        0x50010000
+                            | if choice {
+                                0x00200000 | 3 | 0x10 | 0x200
+                            } else {
+                                0x0000000b
+                            },
                         0,
                         0,
                         1,
@@ -372,6 +377,18 @@ impl Surface {
                             SendMessageW(handle, 0x0143, 0, wide(item).as_ptr() as isize);
                         }
                         SendMessageW(handle, 0x014e, *selected, 0);
+                        SendMessageW(
+                            handle,
+                            0x0153,
+                            usize::MAX,
+                            self.px(self.model.control) as isize,
+                        );
+                        SendMessageW(
+                            handle,
+                            0x0153,
+                            0,
+                            self.px(self.model.font + self.model.gap) as isize,
+                        );
                     }
                     self.controls.push(Control {
                         handle,
@@ -688,6 +705,52 @@ impl Surface {
             DeleteObject(pen);
         }
     }
+    fn draw_choice(&self, item: &DrawItem) {
+        let Some(control) = self.controls.iter().find(|c| c.id == item.id) else {
+            return;
+        };
+        let Row::Choice {
+            items, selected, ..
+        } = &self.model.rows[control.row]
+        else {
+            return;
+        };
+        let index = if item.item == u32::MAX {
+            *selected
+        } else {
+            item.item as usize
+        };
+        let Some(text) = items.get(index) else {
+            return;
+        };
+        // SAFETY: standard COMBOBOX keeps its strings/accessibility/selection;
+        // the callback lends only this item's initialized DC and rectangle.
+        unsafe {
+            let brush =
+                CreateSolidBrush(self.model.colors[if item.state & 1 != 0 { 0 } else { 1 }]);
+            FillRect(item.dc, &item.rectangle, brush);
+            DeleteObject(brush);
+            let old = SelectObject(item.dc, self.font);
+            SetBkMode(item.dc, 1);
+            SetTextColor(item.dc, self.model.colors[2]);
+            let mut rect = Rectangle {
+                left: item.rectangle.left + self.px(self.model.gap),
+                right: item.rectangle.right - self.px(self.model.gap),
+                ..item.rectangle
+            };
+            DrawTextW(
+                item.dc,
+                wide(&gdi_text(text)).as_ptr(),
+                -1,
+                &mut rect,
+                4 | 0x20 | 0x800 | 0x8000 | if self.model.rtl { 0x20000 | 2 } else { 0 },
+            );
+            if item.state & 16 != 0 {
+                DrawFocusRect(item.dc, &item.rectangle);
+            }
+            SelectObject(item.dc, old);
+        }
+    }
 }
 unsafe extern "system" fn procedure(
     window: Handle,
@@ -718,7 +781,12 @@ unsafe extern "system" fn procedure(
             }
             0x002b => {
                 if lparam != 0 {
-                    s.draw_button(&*(lparam as *const DrawItem));
+                    let item = &*(lparam as *const DrawItem);
+                    if item.kind == 3 {
+                        s.draw_choice(item);
+                    } else {
+                        s.draw_button(item);
+                    }
                 }
                 1
             }
@@ -864,6 +932,7 @@ struct ScrollInfo {
 }
 #[link(name = "user32")]
 unsafe extern "system" {
+    fn DrawFocusRect(dc: Handle, rectangle: *const Rectangle) -> i32;
     fn CopyIcon(icon: Handle) -> Handle;
     fn LoadCursorW(instance: Handle, name: *const u16) -> Handle;
     fn ShowWindow(window: Handle, command: i32) -> i32;
