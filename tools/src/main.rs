@@ -104,6 +104,14 @@ fn setup() -> Result {
                 "--location",
                 "--silent",
                 "--show-error",
+                "--retry",
+                "3",
+                "--retry-max-time",
+                "45",
+                "--connect-timeout",
+                "10",
+                "--max-time",
+                "60",
                 "--output",
                 archive.to_str().unwrap(),
                 &artifact.url,
@@ -657,6 +665,20 @@ fn run() -> Result {
         Some("test") => test(),
         Some("ui-linux") => linux_ui::run(),
         Some("ui-linux-session") => linux_ui::session(),
+        Some("ui-windows") => {
+            let binaries = build_binaries(false)?;
+            let status = Command::new(&binaries["windows-ui-acceptance"])
+                .env(
+                    "CARGO_BIN_EXE_nddev-systeminfod",
+                    &binaries["nddev-systeminfod"],
+                )
+                .status()?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err("native Windows UI acceptance failed".into())
+            }
+        }
         Some("measure") => resources::measure(),
         _ => Err("usage: systeminfo-tools <setup|generate|check|test>".into()),
     }
