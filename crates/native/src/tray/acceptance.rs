@@ -20,10 +20,27 @@ pub fn capture_popup(path: &Path) -> io::Result<bool> {
             }
             let mut pid = 0;
             GetWindowThreadProcessId(window, &mut pid);
-            if pid == std::process::id() {
+            if pid == std::process::id() && IsWindowVisible(window) != 0 {
                 break;
             }
         }
+        // A menu HWND exists before native layout/presentation completes. Wait
+        // for real visible item rectangles, then capture its final geometry.
+        let mut info: MenuBarInfo = std::mem::zeroed();
+        info.size = size_of::<MenuBarInfo>() as u32;
+        if GetMenuBarInfo(window, -4, 0, &mut info) == 0 || info.menu.is_null() {
+            return Ok(false);
+        }
+        let count = GetMenuItemCount(info.menu);
+        let mut item: Rectangle = std::mem::zeroed();
+        if count <= 0
+            || GetMenuItemRect(window, info.menu, (count - 1) as u32, &mut item) == 0
+            || item.bottom <= item.top
+        {
+            return Ok(false);
+        }
+        UpdateWindow(window);
+        DwmFlush();
         let mut rect = Rectangle {
             left: 0,
             top: 0,
@@ -41,8 +58,6 @@ pub fn capture_popup(path: &Path) -> io::Result<bool> {
         if width > 2048 || height > 2048 {
             return Err(io::Error::other("popup exceeds capture bounds"));
         }
-        UpdateWindow(window);
-        DwmFlush();
         let screen = GetDC(null_mut());
         if screen.is_null() {
             return Err(io::Error::last_os_error());
