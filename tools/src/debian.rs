@@ -89,7 +89,10 @@ pub(super) fn package() -> Result {
     }
     copy(
         Path::new("packaging/linux/nddev-systeminfo.desktop"),
-        &root.join("usr/share/applications/nddev-systeminfo.desktop"),
+        &root.join(format!(
+            "usr/share/applications/{}.desktop",
+            nddev_systeminfo::desktop::application_id()
+        )),
         false,
     )?;
     copy(

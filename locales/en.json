@@ -83,5 +83,6 @@
   "copy_chart": "Copy analysis as JSON",
   "previous": "Previous",
   "next": "Next",
-  "core_page": "Cores {first}–{last} of {count}"
+  "core_page": "Cores {first}–{last} of {count}",
+  "gpu_sleeping": "Sleeping adapter"
 }

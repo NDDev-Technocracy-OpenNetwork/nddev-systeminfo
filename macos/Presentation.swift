@@ -29,6 +29,7 @@ struct UIResource: Decodable, Sendable {
     struct Cell:Decodable,Sendable {let label:String;let metric:String}
     let website:String
     let series:[Series]
+    let gpuSeries:[Series]
     let analysis:Analysis
     let cells:[Cell]
     let version: String

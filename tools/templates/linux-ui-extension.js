@@ -122,6 +122,13 @@ async function exercise() {
     const close = extension._settings.text('close');
     assert((await inspect(close, close)).acted, 'close did not activate');
     await until(() => !Gio.File.new_for_path(`/proc/${analysisPid}`).query_exists(null));
+    indicator._cellItems[1].button.emit('clicked', 1);
+    const reopenedWindow = () => global.get_window_actors().find(actor => actor.meta_window.get_title() === analysisTitle && actor.meta_window.get_pid() !== analysisPid);
+    await until(() => reopenedWindow());
+    const reopened = reopenedWindow().meta_window.get_pid();
+    assert(reopened !== analysisPid, 'closed GTK process was reused');
+    await command(['gapplication', 'action', extension._settings.resource.application_id, 'quit']);
+    await until(() => !Gio.File.new_for_path(`/proc/${reopened}`).query_exists(null));
     indicator._preferences();
     await until(() => global.get_window_actors().some(actor => actor.meta_window.get_title() === 'NDDev Systeminfo · Settings'));
     const window = global.get_window_actors().find(actor => actor.meta_window.get_title() === 'NDDev Systeminfo · Settings');

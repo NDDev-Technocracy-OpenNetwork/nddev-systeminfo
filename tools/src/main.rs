@@ -559,6 +559,17 @@ fn ui_resource() -> Result<String> {
     let defaults: toml::Value = toml::from_str(&fs::read_to_string("config/default.toml")?)?;
     let product: Value = serde_json::from_str(&fs::read_to_string("product.json")?)?;
     let website = product["website"].as_str().ok_or("website missing")?;
+    let application_id = product["application_id"]
+        .as_str()
+        .ok_or("application identity missing")?;
+    if !application_id.contains('.')
+        || application_id.len() > 128
+        || !application_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'_')
+    {
+        return Err("invalid native application identity".into());
+    }
     if !website.starts_with("https://") || website.chars().any(char::is_whitespace) {
         return Err("website must be an HTTPS URL".into());
     }
@@ -594,6 +605,18 @@ fn ui_resource() -> Result<String> {
         json!(nddev_systeminfo::protocol::analysis::HISTORY_SECONDS),
     );
     let series = nddev_systeminfo::protocol::METRICS;
+    let gpu_series: Vec<Value> = product["gpu_series"]
+        .as_array()
+        .ok_or("GPU series missing")?
+        .iter()
+        .map(|field| {
+            let field = field.as_str().ok_or("GPU field missing")?;
+            let selection =
+                nddev_systeminfo::analysis::Selection::parse(&format!("gpu:adapter:{field}"))
+                    .ok_or("unknown GPU series")?;
+            Ok(json!({"key":field,"label":selection.label,"unit":selection.unit}))
+        })
+        .collect::<Result<_>>()?;
     let cells = product["cells"]
         .as_array()
         .ok_or("dashboard cells missing")?;
@@ -606,7 +629,7 @@ fn ui_resource() -> Result<String> {
             return Err("unknown dashboard cell".into());
         }
     }
-    let data = json!({"version":version()?,"website":website,"analysis":analysis,"cells":cells,"series":series,"source":source,"defaults":defaults,"catalogs":catalogs,"themes":themes,"metrics":metrics,"typography":typography,"brand":{"view_box":[BRAND_MARK.min_x,BRAND_MARK.min_y,BRAND_MARK.width,BRAND_MARK.height],"paths":BRAND_MARK.shapes.iter().map(|shape| Value::String(shape.d.into())).collect::<Vec<_>>()}});
+    let data = json!({"version":version()?,"website":website,"application_id":application_id,"analysis":analysis,"cells":cells,"series":series,"gpu_series":gpu_series,"source":source,"defaults":defaults,"catalogs":catalogs,"themes":themes,"metrics":metrics,"typography":typography,"brand":{"view_box":[BRAND_MARK.min_x,BRAND_MARK.min_y,BRAND_MARK.width,BRAND_MARK.height],"paths":BRAND_MARK.shapes.iter().map(|shape| Value::String(shape.d.into())).collect::<Vec<_>>()}});
     Ok(serde_json::to_string_pretty(&data)? + "\n")
 }
 fn check() -> Result {

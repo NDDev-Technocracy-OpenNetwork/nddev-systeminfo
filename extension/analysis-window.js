@@ -15,7 +15,11 @@ for (let i = 0; i < ARGV.length; i += 2) {
         throw new Error('Unsupported analysis option');
     options[ARGV[i].slice(2)] = ARGV[i + 1];
 }
-const application = new Gtk.Application({application_id: 'org.nddev.opennetwork.systeminfo.analysis', flags: Gio.ApplicationFlags.HANDLES_COMMAND_LINE});
+const [, resourceBytes] = Gio.File.new_for_path(`${root}/resources/ui.json`).load_contents(null);
+const application = new Gtk.Application({application_id: JSON.parse(new TextDecoder().decode(resourceBytes)).application_id, flags: Gio.ApplicationFlags.HANDLES_COMMAND_LINE});
+const quit = new Gio.SimpleAction({name: 'quit'});
+quit.connect('activate', () => dashboard?.window.close());
+application.add_action(quit);
 for (const key of ['metric', 'config', 'cli'])
     application.add_main_option(key, 0, GLib.OptionFlags.NONE, GLib.OptionArg.STRING, key, null);
 let dashboard = null;
@@ -111,11 +115,21 @@ class Dashboard {
             toolbar.append(this.button('copy_chart', () => { if (this.raw) this.window.get_clipboard().set(this.raw); }));
             this.content.append(toolbar);
             const controls = this.box(true);
-            const series = Gtk.DropDown.new_from_strings(this.resource.series.map(s => this.t(s.label)));
-            const index = this.resource.series.findIndex(s => s.key === this.metric);
-            series.selected = index < 0 ? Gtk.INVALID_LIST_POSITION : index;
+            const choices = this.resource.series.map(s => ({key: s.key, text: this.t(s.label)}));
+            if (!choices.some(s => s.key === this.metric)) {
+                let text = this.t('unavailable');
+                if (this.metric.startsWith('core:')) text = this.t('logical_core').replace('{id}', this.metric.slice(5));
+                else {
+                    const field = this.resource.gpu_series.find(s => this.metric.endsWith(`:${s.key}`));
+                    const gpu = this.view?.latest?.detail.gpus.find(g => this.metric === `gpu:${g.id}:${field?.key}`);
+                    if (field) text = `${gpu?.name ?? this.t('gpu')} · ${this.t(field.label)}`;
+                }
+                choices.push({key: this.metric, text});
+            }
+            const series = Gtk.DropDown.new_from_strings(choices.map(s => s.text));
+            series.selected = choices.findIndex(s => s.key === this.metric);
             series.hexpand = true; series.tooltip_text = this.t('readings');
-            series.connect('notify::selected', () => { if (this.resource.series[series.selected]) this.select(this.resource.series[series.selected].key); });
+            series.connect('notify::selected', () => { if (choices[series.selected]) this.select(choices[series.selected].key); });
             controls.append(series);
             const ranges = Gtk.DropDown.new_from_strings(this.resource.analysis.ranges_seconds.map(s => this.t(`range_${s / 60}`)));
             ranges.selected = this.resource.analysis.ranges_seconds.indexOf(this.range);
@@ -290,10 +304,10 @@ class Dashboard {
             this.gpus.append(this.button('enable_gpu', () => { void this.settings.set('sampling.gpu', true).catch(() => { this.status.label = this.t('error'); }); }));
         }
         for (const gpu of gpus) {
-            this.gpus.append(this.label(`${gpu.name} · ${this.t(gpu.status === 'available' ? 'connected' : 'unavailable')}`));
+            this.gpus.append(this.label(`${gpu.name} · ${this.t(gpu.status === 'available' ? 'connected' : gpu.status === 'sleeping' ? 'gpu_sleeping' : 'unavailable')}`));
             const row = this.box(true);
-            for (const [field, label] of [['usage', 'gpu'], ['temperature', 'gpu_temperature'], ['dedicated_used', 'dedicated_memory'], ['shared_used', 'shared_memory']])
-                row.append(this.button(label, () => this.select(`gpu:${gpu.id}:${field}`)));
+            for (const field of this.resource.gpu_series)
+                row.append(this.button(field.label, () => this.select(`gpu:${gpu.id}:${field.key}`)));
             this.gpus.append(row);
         }
     }

@@ -1,5 +1,7 @@
 {
   "website": "https://nddev.ai/opennetwork",
+  "application_id": "org.nddev.opennetwork.systeminfo.analysis",
+  "gpu_series": ["usage", "temperature", "dedicated_used", "shared_used"],
   "analysis": {
     "ranges_seconds": [900, 1800, 3600],
     "cores_per_page": 16

@@ -220,6 +220,8 @@ private final class AnalysisSurface: NSView {
         appearanceChanged?()
     }
 }
+@MainActor
+private final class ScrollStack: NSStackView { override var isFlipped: Bool { true } }
 
 @MainActor
 final class AnalysisWindow: NSWindowController, NSWindowDelegate {
@@ -252,6 +254,7 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
     private var scale = NSTextField(labelWithString: "")
     private var pauseButton = NSButton()
     private var series = NSPopUpButton()
+    private var seriesKeys: [String] = []
     private var onClose: (() -> Void)?
     private var contrastObserver: NSObjectProtocol?
     private var retry: Timer?
@@ -299,14 +302,15 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
         b.font = NSFont.systemFont(ofSize: resource.typography[language]!.label)
         return b
     }
-    private func stack(_ orientation: NSUserInterfaceLayoutOrientation = .vertical) -> NSStackView {
-        let s = NSStackView(); s.orientation = orientation
+    private func stack(_ orientation: NSUserInterfaceLayoutOrientation = .vertical, flipped: Bool = false) -> NSStackView {
+        let s: NSStackView = flipped ? ScrollStack() : NSStackView(); s.orientation = orientation
         s.spacing = resource.metrics[config.display.density]!.gap
         s.alignment = orientation == .vertical ? .leading : .centerY
         s.distribution = orientation == .horizontal ? .fillEqually : .fill
         return s
     }
     private func full(_ child: NSView, in parent: NSStackView) {
+        if child is NSTextField { child.setContentHuggingPriority(.required, for: .vertical) }
         parent.addArrangedSubview(child)
         child.widthAnchor.constraint(equalTo: parent.widthAnchor).isActive = true
     }
@@ -343,7 +347,7 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
         }
         full(overview, in: root)
         overview.isHidden = selected != nil
-        detail = stack()
+        detail = stack(flipped: true)
         if selected != nil {
             let actions = stack(.horizontal)
             actions.addArrangedSubview(button("back", action: #selector(back)))
@@ -353,8 +357,18 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
             full(actions, in: detail)
             let controls = stack(.horizontal)
             series = NSPopUpButton()
-            series.addItems(withTitles: resource.series.map { text($0.label) })
-            if let index = resource.series.firstIndex(where: { $0.key == selected }) { series.selectItem(at: index) }
+            seriesKeys = resource.series.map(\.key)
+            var titles = resource.series.map { text($0.label) }
+            if let selected, !seriesKeys.contains(selected) {
+                seriesKeys.append(selected)
+                if selected.hasPrefix("core:") { titles.append(text("logical_core").replacingOccurrences(of: "{id}", with: String(selected.dropFirst(5)))) }
+                else if let field = resource.gpuSeries.first(where: { selected.hasSuffix(":\($0.key)") }) {
+                    let gpu = view?.latest?.detail.gpus.first(where: { selected == "gpu:\($0.id):\(field.key)" })
+                    titles.append("\(gpu?.name ?? text("gpu")) · \(text(field.label))")
+                } else { titles.append(text("unavailable")) }
+            }
+            series.addItems(withTitles: titles)
+            if let index = seriesKeys.firstIndex(where: { $0 == selected }) { series.selectItem(at: index) }
             series.target = self; series.action = #selector(changeSeries)
             series.setAccessibilityLabel(text("readings"))
             controls.addArrangedSubview(series)
@@ -378,6 +392,7 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
             stats = NSTextField(wrappingLabelWithString: ""); full(stats, in: detail)
             coverage = NSTextField(wrappingLabelWithString: ""); full(coverage, in: detail)
             let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.drawsBackground = false
+            scroll.setContentHuggingPriority(NSLayoutConstraint.Priority(rawValue: 1), for: .vertical)
             detail.translatesAutoresizingMaskIntoConstraints = false
             let clip = scroll.contentView
             clip.documentView = detail
@@ -387,8 +402,10 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
             scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: m.minWidth).isActive = true
             coreIDs = []; gpuIDs = []
         }
-        let spacer = NSView(); spacer.setContentHuggingPriority(.defaultLow, for: .vertical)
-        full(spacer, in: root)
+        if selected == nil {
+            let spacer = NSView(); spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(rawValue: 1), for: .vertical)
+            full(spacer, in: root)
+        }
         let hint = NSTextField(wrappingLabelWithString: text("history_hint"))
         hint.font = NSFont.systemFont(ofSize: resource.typography[language]!.label)
         full(hint, in: root)
@@ -496,13 +513,12 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
             full(button("enable_gpu", action: #selector(enableGPU)), in: gpuBox)
         }
         for gpu in gpus {
-            let title = NSTextField(labelWithString: "\(gpu.name) · \(gpu.status == "available" ? text("connected") : text("unavailable"))")
+            let title = NSTextField(labelWithString: "\(gpu.name) · \(text(gpu.status == "available" ? "connected" : gpu.status == "sleeping" ? "gpu_sleeping" : "unavailable"))")
             full(title, in: gpuBox)
             let row = stack(.horizontal)
-            for (field, label) in [("usage", "gpu"), ("temperature", "gpu_temperature"),
-                ("dedicated_used", "dedicated_memory"), ("shared_used", "shared_memory")] {
-                let b = NSButton(title: text(label), target: nil, action: nil)
-                b.target = self; b.action = #selector(selectGPU(_:)); b.identifier = NSUserInterfaceItemIdentifier("gpu:\(gpu.id):\(field)")
+            for field in resource.gpuSeries {
+                let b = NSButton(title: text(field.label), target: nil, action: nil)
+                b.target = self; b.action = #selector(selectGPU(_:)); b.identifier = NSUserInterfaceItemIdentifier("gpu:\(gpu.id):\(field.key)")
                 row.addArrangedSubview(b)
             }
             full(row, in: gpuBox)
@@ -523,7 +539,7 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
         }
     }
     @objc private func back() { selected = nil; build(); restart() }
-    @objc private func changeSeries() { select(resource.series[series.indexOfSelectedItem].key) }
+    @objc private func changeSeries() { if seriesKeys.indices.contains(series.indexOfSelectedItem) { select(seriesKeys[series.indexOfSelectedItem]) } }
     @objc private func changeRange(_ sender: NSPopUpButton) { range = resource.analysis.rangesSeconds[sender.indexOfSelectedItem]; restart() }
     @objc private func selectGPU(_ sender: NSButton) { if let key = sender.identifier?.rawValue { select(key) } }
     @objc private func togglePause() {

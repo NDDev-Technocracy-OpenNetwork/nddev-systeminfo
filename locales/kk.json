@@ -83,5 +83,6 @@
   "copy_chart": "Талдауды JSON ретінде көшіру",
   "previous": "Алдыңғы",
   "next": "Келесі",
-  "core_page": "{count} ядроның {first}–{last} аралығы"
+  "core_page": "{count} ядроның {first}–{last} аралығы",
+  "gpu_sleeping": "Адаптер ұйқы режимінде"
 }

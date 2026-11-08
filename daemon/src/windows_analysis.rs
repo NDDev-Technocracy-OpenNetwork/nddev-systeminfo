@@ -38,6 +38,12 @@ struct Resource {
     cells: Vec<Cell>,
     analysis: Limits,
     typography: BTreeMap<String, Typography>,
+    gpu_series: Vec<GPUField>,
+}
+#[derive(Deserialize)]
+struct GPUField {
+    key: String,
+    label: String,
 }
 #[derive(Deserialize)]
 struct Typography {
@@ -384,15 +390,10 @@ fn choices(s: &State) -> Vec<(String, String)> {
         .collect();
     if let Some(frame) = s.view.as_ref().and_then(|v| v.latest.as_ref()) {
         for gpu in &frame.detail.gpus {
-            for (field, label) in [
-                ("usage", "gpu"),
-                ("temperature", "gpu_temperature"),
-                ("dedicated_used", "dedicated_memory"),
-                ("shared_used", "shared_memory"),
-            ] {
+            for field in &s.resource.gpu_series {
                 choices.push((
-                    format!("gpu:{}:{field}", gpu.id),
-                    format!("{} · {}", gpu.name, c.text(label)),
+                    format!("gpu:{}:{}", gpu.id, field.key),
+                    format!("{} · {}", gpu.name, c.text(&field.label)),
                 ));
             }
         }
@@ -600,6 +601,8 @@ fn model(s: &State) -> Model {
                             gpu.name,
                             c.text(if gpu.status == "available" {
                                 "connected"
+                            } else if gpu.status == "sleeping" {
+                                "gpu_sleeping"
                             } else {
                                 "unavailable"
                             })

@@ -83,5 +83,6 @@
   "copy_chart": "نسخ التحليل بصيغة JSON",
   "previous": "السابق",
   "next": "التالي",
-  "core_page": "الأنوية {first}–{last} من {count}"
+  "core_page": "الأنوية {first}–{last} من {count}",
+  "gpu_sleeping": "محوّل الرسومات في وضع السكون"
 }

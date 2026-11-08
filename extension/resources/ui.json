@@ -10,6 +10,7 @@
       3600
     ]
   },
+  "application_id": "org.nddev.opennetwork.systeminfo.analysis",
   "brand": {
     "paths": [
       "M28.35 40.1L28.35 40.1L0 68.45L0 137.02L28.23 136.93L28.35 108.67L28.35 96.67L28.35 68.45L68.53 68.45L68.53 40.1L28.35 40.1Z",
@@ -61,6 +62,7 @@
       "gpu_description": "عدادات المحولات السلبية. لا يتم استقصاء المحولات المعلقة.",
       "gpu_disabled": "جمع قراءات الرسومات متوقف",
       "gpu_memory": "ذاكرة الرسوميات",
+      "gpu_sleeping": "محوّل الرسومات في وضع السكون",
       "gpu_temperature": "حرارة الرسوميات",
       "history": "الساعة الماضية",
       "history_coverage": "القياسات: {count} · التغطية: {minutes} دقيقة",
@@ -148,6 +150,7 @@
       "gpu_description": "Passive adapter counters. Suspended adapters are not probed.",
       "gpu_disabled": "Graphics collection is off",
       "gpu_memory": "Graphics memory",
+      "gpu_sleeping": "Sleeping adapter",
       "gpu_temperature": "Graphics temperature",
       "history": "Last hour",
       "history_coverage": "Samples: {count} · Coverage: {minutes} min",
@@ -235,6 +238,7 @@
       "gpu_description": "Адаптердің пассивті есептегіштері. Ұйқыдағы құрылғылар сұралмайды.",
       "gpu_disabled": "GPU өлшемдері өшірілген",
       "gpu_memory": "Бейнежад",
+      "gpu_sleeping": "Адаптер ұйқы режимінде",
       "gpu_temperature": "Графика температурасы",
       "history": "Соңғы сағат",
       "history_coverage": "Өлшемдер: {count} · Қамту: {minutes} мин",
@@ -322,6 +326,7 @@
       "gpu_description": "Пассивные счётчики адаптеров. Спящие устройства не опрашиваются.",
       "gpu_disabled": "Сбор GPU выключен",
       "gpu_memory": "Видеопамять",
+      "gpu_sleeping": "Адаптер в режиме сна",
       "gpu_temperature": "Температура графики",
       "history": "Последний час",
       "history_coverage": "Замеры: {count} · Покрытие: {minutes} мин",
@@ -409,6 +414,7 @@
       "gpu_description": "读取被动适配器计数器，不查询休眠设备。",
       "gpu_disabled": "图形采集已关闭",
       "gpu_memory": "显存",
+      "gpu_sleeping": "显卡处于休眠状态",
       "gpu_temperature": "显卡温度",
       "history": "最近一小时",
       "history_coverage": "测量数：{count} · 覆盖：{minutes} 分钟",
@@ -514,6 +520,28 @@
       "reconnect_seconds": 5
     }
   },
+  "gpu_series": [
+    {
+      "key": "usage",
+      "label": "gpu",
+      "unit": "percent"
+    },
+    {
+      "key": "temperature",
+      "label": "gpu_temperature",
+      "unit": "celsius"
+    },
+    {
+      "key": "dedicated_used",
+      "label": "dedicated_memory",
+      "unit": "bytes"
+    },
+    {
+      "key": "shared_used",
+      "label": "shared_memory",
+      "unit": "bytes"
+    }
+  ],
   "metrics": {
     "comfortable": {
       "border": 1.0,

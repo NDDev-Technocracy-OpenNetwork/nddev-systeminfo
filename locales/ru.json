@@ -83,5 +83,6 @@
   "copy_chart": "Скопировать анализ как JSON",
   "previous": "Назад",
   "next": "Далее",
-  "core_page": "Ядра {first}–{last} из {count}"
+  "core_page": "Ядра {first}–{last} из {count}",
+  "gpu_sleeping": "Адаптер в режиме сна"
 }
