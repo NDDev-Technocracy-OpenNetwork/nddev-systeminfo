@@ -54,13 +54,9 @@ fn register_maintenance(directory: &Path) -> Result {
     Ok(())
 }
 fn enabled_product() -> Result<bool> {
-    let key = format!(
-        "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{}",
-        product_code()?
-    );
-    Ok(run("reg.exe", &["query".as_ref(), key.as_ref()], false)?
-        .status
-        .success())
+    Ok(nddev_systeminfo_native::process::installed_product(
+        &product_code()?,
+    )?)
 }
 fn root() -> Result<PathBuf> {
     Ok(crate::config::default_path()?
