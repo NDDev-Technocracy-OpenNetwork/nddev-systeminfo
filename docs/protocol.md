@@ -1,4 +1,4 @@
-# rldyour-sysinfo protocol
+# NDDev Systeminfo protocol
 
 The daemon publishes newline-delimited JSON over a per-user local socket.
 Every client sees the same stream; every sample carries every field, with
@@ -31,7 +31,7 @@ whole seconds:
   the fastest cadence at which the readers stay meaningful. Anything outside
   the range is ignored.
 - The daemon serves the fastest cadence any connected client requested and
-  falls back to its configured `RLDYOUR_SYSINFO_INTERVAL` (default 5).
+  falls back to `sampling.interval_seconds` in the typed TOML configuration.
 - A new connection wakes the daemon's loop at once and receives the latest
   completed snapshot. If that snapshot is already due at the requested
   cadence, the collector refreshes it first. Connecting does not force extra
@@ -79,6 +79,11 @@ The server admits at most 32 clients. A client that cannot receive a complete
 sample without blocking is disconnected and may reconnect on a backoff.
 Every client should enforce the 4096-byte frame ceiling. When there are no
 clients, the daemon does not collect hardware samples.
+
+After `sampling.idle_release_seconds` without clients, it also drops the
+collector and releases cached handles and optional driver resources. GPU
+collection is opt-in through `sampling.gpu`. These settings do not change the
+v1 endpoint identity or nullable metric shape.
 
 Linux and macOS use socket activation (systemd user socket, launchd
 `Sockets`), so the daemon may exit after thirty seconds without clients and

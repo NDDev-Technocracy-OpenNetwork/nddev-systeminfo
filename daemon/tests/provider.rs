@@ -197,3 +197,53 @@ fn cli_config_and_live_sample_use_the_same_contract() {
         true
     );
 }
+
+#[test]
+fn cli_migration_preserves_explicit_legacy_values_and_existing_configuration() {
+    let provider = Provider::start();
+    let path = provider.directory.join("migrated.toml");
+    let executable = std::env::var_os("CARGO_BIN_EXE_nddev-systeminfo").unwrap();
+    let migrate = |json: &str| {
+        Command::new(&executable)
+            .args([
+                "config",
+                "migrate",
+                "--legacy-json",
+                json,
+                "--config",
+                path.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap()
+    };
+    let output = migrate(r#"{"interval":0,"show-network":false,"show-gpu":true}"#);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()["migrated"],
+        true
+    );
+    let contents = fs::read_to_string(&path).unwrap();
+    let config = Config::parse(&contents).unwrap();
+    assert_eq!(config.sampling.interval_seconds, 0);
+    assert!(!config.display.show_network);
+    assert!(config.display.show_gpu);
+    let output = migrate(r#"{"interval":10,"show-network":true}"#);
+    assert!(output.status.success());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()["migrated"],
+        false
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), contents);
+    assert!(!fs::read_dir(&provider.directory).unwrap().any(|entry| {
+        entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .ends_with(".tmp")
+    }));
+    provider.client().next_sample().unwrap();
+}

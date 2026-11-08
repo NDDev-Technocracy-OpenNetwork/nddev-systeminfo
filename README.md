@@ -229,13 +229,10 @@ boundaries, platform checks and primary references behind the implementation.
 
 ## Licence
 
-AGPL-3.0-or-later.
+Current source: Apache-2.0, with [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Published older tags and artifacts keep their original licenses.
 
-Low-level macOS API precedents and dependency licences are recorded in
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
-
-Note that this places the extension outside what extensions.gnome.org accepts:
-the portal requires every extension to be distributable under GPL-2.0-or-later,
-which AGPL-3.0 is not compatible with. The portal separately forbids shipping
-binaries, which this project needs. Distribution is therefore from this
-repository.
+Low-level macOS API precedents and dependency licenses are recorded in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Native presentation consumes
+only the public OpenNetwork design package; its source pin is in
+[design-system.toml](design-system.toml).

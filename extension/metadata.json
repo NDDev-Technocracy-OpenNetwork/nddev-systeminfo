@@ -1,6 +1,6 @@
 {
   "description": "Shows CPU, memory, GPU, temperatures, disk and network activity in the top bar, left of the clock.\n\nReads everything from a companion daemon over a private socket, so the shell process itself does no polling and no parsing of kernel files.",
-  "name": "rldyour sysinfo",
+  "name": "NDDev Systeminfo",
   "settings-schema": "org.gnome.shell.extensions.rldyour-sysinfo",
   "shell-version": [
     "46",

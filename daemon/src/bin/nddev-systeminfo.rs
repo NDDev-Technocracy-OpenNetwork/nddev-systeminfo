@@ -1,7 +1,7 @@
 //! Standalone CLI; stdout samples remain a stable machine interface.
 use nddev_systeminfo::{
     client::Client,
-    config::{self, Config},
+    config::{self, Config, LegacySettings},
     protocol,
 };
 use nddev_systeminfo_native::transport;
@@ -17,6 +17,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut args = std::env::args().skip(1);
     let (mut config_path, mut socket, mut interval) = (None, None, None);
     let (mut once, mut json) = (false, false);
+    let mut legacy = None;
     let mut command = Vec::new();
     while let Some(argument) = args.next() {
         match argument.as_str() {
@@ -48,6 +49,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
             "--once" => once = true,
             "--json" => json = true,
+            "--legacy-json" => legacy = Some(args.next().ok_or("--legacy-json needs an object")?),
             option if option.starts_with('-') => {
                 return Err(format!("unknown option: {option}").into());
             }
@@ -59,8 +61,11 @@ fn run() -> Result<(), Box<dyn Error>> {
         println!("{}", protocol::SCHEMA);
         return Ok(());
     }
-    let mut config = if operation == "config" && command.get(1).is_some_and(|value| value == "init")
-    {
+    let mut config = if operation == "config"
+        && command.get(1).is_some_and(|value| {
+            value == "init"
+                || value == "migrate" && config_path.as_ref().is_some_and(|path| !path.exists())
+        }) {
         Config::parse(config::DEFAULT_TOML)?
     } else {
         Config::load(config_path.as_deref())?
@@ -73,11 +78,17 @@ fn run() -> Result<(), Box<dyn Error>> {
             "show" => print!("{}", toml::to_string_pretty(&config)?),
             "check" => println!("{{\"valid\":true}}"),
             "init" => {
-                if path.exists() {
+                if !config.store_if_absent(&path)? {
                     return Err("configuration already exists".into());
                 }
-                config.store(&path)?;
                 println!("{}", path.display());
+            }
+            "migrate" => {
+                let legacy: LegacySettings = serde_json::from_str(
+                    legacy.as_deref().ok_or("migration needs --legacy-json")?,
+                )?;
+                let migrated = legacy.apply(&mut config)? && config.store_if_absent(&path)?;
+                println!("{{\"migrated\":{migrated}}}");
             }
             "set" => {
                 if command.len() != 4 {

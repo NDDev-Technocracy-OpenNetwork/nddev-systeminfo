@@ -9,10 +9,13 @@ max_clients = 32
 handshake_bytes = 256
 handshake_timeout_ms = 250
 client_timeout_ms = 5000
+reconnect_seconds = 5
 accept_stack_bytes = 65536
 
 [display]
 locale = "system"
+theme = "system"
+density = "compact"
 show_cpu = true
 show_memory = true
 show_gpu = false

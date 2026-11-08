@@ -10,6 +10,12 @@ project:
   Stats, GPL-2.0 License, <https://github.com/yujitach/MenuMeters>
 
 No Stats binary, helper, bundle, or source file is distributed with
-`rldyour-sysinfo`. Runtime Rust dependencies and their exact versions are
-recorded in `daemon/Cargo.lock`; their license metadata remains available in
+NDDev Systeminfo. Runtime Rust dependencies and their exact versions are
+recorded in `Cargo.lock`; their license metadata remains available in
 the corresponding crates.
+
+The original OpenNetwork design tokens and brand geometry are Apache-2.0,
+copyright 2026 Danil Silantyev, NDDev. The exact source is pinned in
+`design-system.toml`; native resource projections are generated from that
+package. Native interfaces use platform fonts; no third-party font file or
+third-party icon is bundled by this projection.

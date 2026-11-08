@@ -1,87 +1,91 @@
-/* rldyour-sysinfo — preferences
- *
- * Runs in its own process, which is why nothing here touches St, Clutter, Meta
- * or Shell: those libraries exist only inside gnome-shell.
- */
-
+// A separate native GTK process. No Shell toolkit enters this process.
 import Adw from 'gi://Adw';
-import Gio from 'gi://Gio';
 import Gtk from 'gi://Gtk';
-
+import Gio from 'gi://Gio';
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
+import {Settings} from './lib/settings.js';
 
-/** Panel toggles, in the order they appear in the panel itself. */
-const TOGGLES = [
-    {key: 'show-cpu', title: 'Processor', subtitle: 'Busy share of all cores'},
-    {key: 'show-memory', title: 'Memory', subtitle: 'Share unavailable to new allocations'},
-    {key: 'show-gpu', title: 'Graphics', subtitle: 'Requires an NVIDIA driver'},
-    {key: 'show-network', title: 'Network', subtitle: 'Throughput across physical interfaces'},
-    {key: 'show-temperatures', title: 'Temperatures', subtitle: 'Shown next to processor and graphics'},
-];
-
-/**
- * Cadence presets, ordered slowest to fastest. `0` is the wire value for the
- * daemon's realtime mode — half-second ticks — not "off". A ComboRow shows
- * only the title, so each label carries its own timing.
- */
-const MODES = [
-    {seconds: 10, title: 'Economy — every 10 seconds'},
-    {seconds: 5, title: 'Standard — every 5 seconds'},
-    {seconds: 2, title: 'Fast — every 2 seconds'},
-    {seconds: 0, title: 'Realtime — twice a second'},
-];
+const LANGUAGES = [['system', 'system'], ['en', 'English'], ['ru', 'Русский'], ['kk', 'Қазақша'], ['ar', 'العربية'], ['zh', '中文']];
+const INTERVALS = [[10, 'economy'], [5, 'standard'], [2, 'fast'], [0, 'realtime']];
 
 export default class SysinfoPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
-        const settings = this.getSettings();
-        const page = new Adw.PreferencesPage();
-
-        const reading = new Adw.PreferencesGroup({
-            title: 'Readings',
-            description: 'The daemon serves the fastest cadence any client asks for.',
-        });
-        const interval = new Adw.ComboRow({
-            title: 'Interval',
-            subtitle: 'How often the daemon publishes a reading',
-        });
-        const titles = MODES.map(mode => mode.title);
-        const values = MODES.map(mode => mode.seconds);
-        // A hand-set gsettings value survives: offer it rather than silently
-        // snapping the display to the nearest preset.
-        const stored = settings.get_int('interval');
-        if (!values.includes(stored)) {
-            values.push(stored);
-            titles.push(`Custom — every ${stored} seconds`);
-        }
-        const list = new Gtk.StringList();
-        for (const title of titles)
-            list.append(title);
-        interval.model = list;
-        interval.selected = values.indexOf(stored);
-        interval.connect('notify::selected', row => {
-            const seconds = values[row.selected];
-            if (seconds !== undefined && settings.get_int('interval') !== seconds)
-                settings.set_int('interval', seconds);
-        });
-        settings.connect('changed::interval', () => {
-            const index = values.indexOf(settings.get_int('interval'));
-            if (index !== -1 && interval.selected !== index)
-                interval.selected = index;
-        });
-        reading.add(interval);
-        page.add(reading);
-
-        const panel = new Adw.PreferencesGroup({
-            title: 'Panel',
-            description: 'What appears in the top bar. The menu always lists everything.',
-        });
-        for (const toggle of TOGGLES) {
-            const row = new Adw.SwitchRow({title: toggle.title, subtitle: toggle.subtitle});
-            settings.bind(toggle.key, row, 'active', Gio.SettingsBindFlags.DEFAULT);
-            panel.add(row);
-        }
-        page.add(panel);
-
-        window.add(page);
+        const settings = new Settings(this.path);
+        let page = null;
+        const style = Adw.StyleManager.get_default();
+        const provider = new Gtk.CssProvider();
+        Gtk.StyleContext.add_provider_for_display(window.get_display(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
+        const updateStyle = () => {
+            const saved = settings.config.display.theme;
+            const dark = saved.startsWith('dark') || saved === 'system' && style.dark;
+            const contrast = style.high_contrast || saved.endsWith('-contrast');
+            const c = settings.resource.themes[`${dark ? 'dark' : 'light'}${contrast ? '-contrast' : ''}`];
+            const m = settings.resource.metrics[settings.config.display.density];
+            provider.load_from_string(`.systeminfo-brand { background: ${c.surface}; color: ${c.accent}; border: ${m.border}px solid ${c.border}; border-radius: ${m.radius}px; padding: ${m.row_padding}px; }`);
+        };
+        const darkId = style.connect('notify::dark', updateStyle);
+        const contrastId = style.connect('notify::high-contrast', updateStyle);
+        const save = (key, value) => {
+            void settings.set(key, value).catch(() => window.add_toast(new Adw.Toast({title: settings.text('error')})));
+        };
+        const combo = (group, label, options, selected, changed) => {
+            const row = new Adw.ComboRow({title: settings.text(label)});
+            const model = new Gtk.StringList();
+            for (const [, text] of options) model.append(text);
+            row.model = model; row.selected = options.findIndex(([value]) => value === selected);
+            row.connect('notify::selected', () => {
+                const value = options[row.selected]?.[0];
+                if (value !== undefined && value !== selected) changed(value);
+            });
+            group.add(row);
+        };
+        const rebuild = () => {
+            if (page) window.remove(page);
+            const c = settings.config;
+            window.title = `${settings.text('app_title')} · ${settings.text('settings')}`;
+            Gtk.Widget.set_default_direction(settings.rtl ? Gtk.TextDirection.RTL : Gtk.TextDirection.LTR);
+            style.color_scheme = c.display.theme.startsWith('dark') ? Adw.ColorScheme.FORCE_DARK : c.display.theme.startsWith('light') ? Adw.ColorScheme.FORCE_LIGHT : Adw.ColorScheme.DEFAULT;
+            updateStyle();
+            page = new Adw.PreferencesPage();
+            const brand = new Adw.PreferencesGroup();
+            const heading = new Adw.ActionRow({title: settings.text('app_title'), subtitle: settings.resource.version});
+            heading.add_css_class('systeminfo-brand');
+            heading.add_prefix(new Gtk.Image({gicon: new Gio.FileIcon({file: Gio.File.new_for_path(`${this.path}/resources/brand-symbolic.svg`)}), pixel_size: settings.resource.metrics[c.display.density].icon}));
+            brand.add(heading); page.add(brand);
+            if (!settings.ready) {
+                const state = new Adw.PreferencesGroup();
+                state.add(new Adw.ActionRow({title: settings.text(settings.error ? 'error' : 'loading'), subtitle: settings.error ?? ''}));
+                page.add(state); window.add(page); return;
+            }
+            const reading = new Adw.PreferencesGroup({title: settings.text('readings'), description: settings.text('interval_description')});
+            const intervals = INTERVALS.map(([seconds, key]) => [seconds, settings.text(key)]);
+            if (!intervals.some(([value]) => value === c.sampling.interval_seconds)) intervals.push([c.sampling.interval_seconds, settings.text('custom_interval').replace('{seconds}', String(c.sampling.interval_seconds))]);
+            combo(reading, 'interval', intervals, c.sampling.interval_seconds, value => save('sampling.interval_seconds', value));
+            const gpu = new Adw.SwitchRow({title: settings.text('collect_gpu'), subtitle: settings.text('gpu_description'), active: c.sampling.gpu});
+            gpu.connect('notify::active', () => { if (gpu.active !== c.sampling.gpu) save('sampling.gpu', gpu.active); });
+            reading.add(gpu);
+            reading.add(new Adw.ActionRow({title: settings.text('restart_provider')}));
+            page.add(reading);
+            const panel = new Adw.PreferencesGroup({title: settings.text('panel')});
+            for (const key of ['show_cpu', 'show_memory', 'show_gpu', 'show_network', 'show_temperatures']) {
+                const row = new Adw.SwitchRow({title: settings.text(key), active: c.display[key]});
+                row.connect('notify::active', () => { if (row.active !== c.display[key]) save(`display.${key}`, row.active); });
+                panel.add(row);
+            }
+            page.add(panel);
+            const appearance = new Adw.PreferencesGroup({title: settings.text('appearance')});
+            combo(appearance, 'theme', ['system', ...Object.keys(settings.resource.themes)].map(key => [key, settings.text(key)]), c.display.theme, value => save('display.theme', value));
+            combo(appearance, 'density', ['compact', 'comfortable'].map(key => [key, settings.text(key)]), c.display.density, value => save('display.density', value));
+            combo(appearance, 'language', LANGUAGES.map(([value, title]) => [value, value === 'system' ? settings.text(title) : title]), c.display.locale, value => save('display.locale', value));
+            page.add(appearance);
+            if (settings.error) {
+                const error = new Adw.PreferencesGroup({title: settings.text('error')});
+                error.add(new Adw.ActionRow({title: settings.text('provider_help'), subtitle: settings.error})); page.add(error);
+            }
+            window.add(page);
+        };
+        settings.connect(rebuild);
+        window.connect('close-request', () => { settings.close(); style.disconnect(darkId); style.disconnect(contrastId); Gtk.StyleContext.remove_provider_for_display(window.get_display(), provider); return false; });
+        rebuild(); void settings.start();
     }
 }

@@ -1,203 +1,169 @@
-/* rldyour-sysinfo — panel indicator
- */
-
 import Clutter from 'gi://Clutter';
+import Gio from 'gi://Gio';
 import GObject from 'gi://GObject';
 import St from 'gi://St';
-
+import Pango from 'gi://Pango';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
-
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {Client} from './client.js';
 import {ABSENT, celsius, percent, rate, rateIn, rateOut} from './format.js';
 
-/**
- * Panel cells in display order. `temperature` is the field appended when
- * temperatures are on, which is why it is separate from the always-shown ones.
- */
 const CELLS = [
-    {key: 'show-cpu', caption: 'CPU', fields: ['cpu.usage:percent'], temperature: 'cpu.temp:celsius'},
-    {key: 'show-memory', caption: 'RAM', fields: ['memory.used:percent']},
-    {key: 'show-gpu', caption: 'GPU', fields: ['gpu.usage:percent'], temperature: 'gpu.temp:celsius'},
-    {key: 'show-network', caption: 'NET', fields: ['net.rx:rateIn', 'net.tx:rateOut']},
+    {setting: 'show_cpu', caption: 'CPU', fields: ['cpu.usage:percent'], temperature: 'cpu.temp:celsius'},
+    {setting: 'show_memory', caption: 'RAM', fields: ['memory.used:percent']},
+    {setting: 'show_gpu', caption: 'GPU', fields: ['gpu.usage:percent'], temperature: 'gpu.temp:celsius'},
+    {setting: 'show_network', caption: '↔', fields: ['net.rx:rateIn', 'net.tx:rateOut']},
 ];
-
-/** Dropdown rows. The menu always lists everything, whatever the panel shows. */
 const ROWS = [
-    {title: 'Processor', field: 'cpu.usage:percent'},
-    {title: 'Processor temperature', field: 'cpu.temp:celsius'},
-    {title: 'Memory', field: 'memory.used:percent'},
-    {title: 'Swap', field: 'memory.swap:percent'},
-    {title: 'Graphics', field: 'gpu.usage:percent'},
-    {title: 'Graphics memory', field: 'gpu.memory:percent'},
-    {title: 'Graphics temperature', field: 'gpu.temp:celsius'},
-    {title: 'Disk read', field: 'disk.read:rate'},
-    {title: 'Disk write', field: 'disk.write:rate'},
-    {title: 'Disk temperature', field: 'disk.temp:celsius'},
-    {title: 'Network in', field: 'net.rx:rate'},
-    {title: 'Network out', field: 'net.tx:rate'},
+    ['cpu', 'cpu.usage:percent'], ['cpu_temperature', 'cpu.temp:celsius'],
+    ['memory', 'memory.used:percent'], ['swap', 'memory.swap:percent'],
+    ['gpu', 'gpu.usage:percent'], ['gpu_memory', 'gpu.memory:percent'], ['gpu_temperature', 'gpu.temp:celsius'],
+    ['disk_read', 'disk.read:rate'], ['disk_write', 'disk.write:rate'], ['disk_temperature', 'disk.temp:celsius'],
+    ['network_rx', 'net.rx:rate'], ['network_tx', 'net.tx:rate'],
 ];
-
 const FORMATTERS = {percent, celsius, rate, rateIn, rateOut};
 
-/**
- * Captions are dimmed through the actor, because St implements only a subset
- * of CSS and its opacity handling is not dependable across themes.
- */
-const CAPTION_OPACITY = 140;
-
-export const Indicator = GObject.registerClass(
-class Indicator extends PanelMenu.Button {
-    _init(settings) {
-        super._init(0.5, 'rldyour sysinfo', false);
-
-        this._settings = settings;
-        // Every label carrying a value, keyed by its `path:formatter`
-        // descriptor. One flat map makes an update a single pass with no
-        // lookups into the widget tree.
-        this._fields = new Map();
-        this._panel = null;
-        this._client = null;
-
-        this._changedId = settings.connect('changed', () => this._rebuild());
+export const Indicator = GObject.registerClass(class Indicator extends PanelMenu.Button {
+    _init(settings, openPreferences) {
+        super._init(0.5, settings.text('app_title'), false);
+        this._settings = settings; this._preferences = openPreferences;
+        this.menu._boxPointer.bin.set_child(null);
+        this._scroll = new St.ScrollView({hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.AUTOMATIC, child: this.menu.box, clip_to_allocation: true});
+        this.menu._boxPointer.bin.set_child(this._scroll);
+        this.menu.connect('open-state-changed', () => this._constrain());
+        this._workareaId = global.display.connect('workareas-changed', () => this._constrain());
+        this._fields = new Map(); this._rowItems = [];
+        this._client = null; this._panel = null; this._sample = null; this._connected = false;
+        this._changedId = settings.connect(() => this._rebuild());
+        this._appearance = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
+        this._appearanceId = this._appearance.connect('changed::color-scheme', () => this._style());
+        this._contrast = St.Settings.get();
+        this._contrastId = this._contrast.connect('notify::high-contrast', () => this._style());
         this._build();
     }
-
     _build() {
-        this._panel = this._buildPanel();
-        this.add_child(this._panel);
-        this._buildMenu();
-        this._client = new Client(
-            this._settings.get_int('interval'),
-            sample => this._apply(sample),
-            connected => this._setConnected(connected));
-    }
-
-    /**
-     * Settings changes are rare and touch both which cells exist and which
-     * cadence the daemon is asked for, so the whole indicator is rebuilt rather
-     * than patched in place. That keeps teardown in exactly one place.
-     */
-    _rebuild() {
-        this._teardown();
-        this._build();
-    }
-
-    _teardown() {
-        this._client.stop();
-        this._client = null;
-        this._panel.destroy();
-        this._panel = null;
-        this.menu.removeAll();
-        this._fields.clear();
-    }
-
-    _buildPanel() {
-        const panel = new St.BoxLayout({
-            styleClass: 'rldyour-panel',
-            yAlign: Clutter.ActorAlign.CENTER,
-        });
-        const temperatures = this._settings.get_boolean('show-temperatures');
-
+        const settings = this._settings;
+        this.set_text_direction(settings.rtl ? Clutter.TextDirection.RTL : Clutter.TextDirection.LTR);
+        this.menu.actor.set_text_direction(settings.rtl ? Clutter.TextDirection.RTL : Clutter.TextDirection.LTR);
+        this.menu.box.set_text_direction(settings.rtl ? Clutter.TextDirection.RTL : Clutter.TextDirection.LTR);
+        this._panel = new St.BoxLayout({yAlign: Clutter.ActorAlign.CENTER});
+        this._icon = new St.Icon({gicon: new Gio.FileIcon({file: Gio.File.new_for_path(`${settings.root}/resources/brand-symbolic.svg`)}), style_class: 'system-status-icon'});
+        this._panel.add_child(this._icon);
         for (const cell of CELLS) {
-            if (!this._settings.get_boolean(cell.key))
-                continue;
-
-            const box = new St.BoxLayout({
-                styleClass: 'rldyour-cell',
-                yAlign: Clutter.ActorAlign.CENTER,
-            });
-            box.add_child(new St.Label({
-                text: cell.caption,
-                styleClass: 'rldyour-caption',
-                yAlign: Clutter.ActorAlign.CENTER,
-                opacity: CAPTION_OPACITY,
-            }));
-
-            const fields = [...cell.fields];
-            if (temperatures && cell.temperature !== undefined)
-                fields.push(cell.temperature);
-            for (const field of fields)
-                box.add_child(this._valueLabel(field, 'rldyour-value'));
-
-            panel.add_child(box);
+            if (!settings.config.display[cell.setting]) continue;
+            const box = new St.BoxLayout({yAlign: Clutter.ActorAlign.CENTER});
+            box.add_child(new St.Label({text: cell.caption, style_class: 'systeminfo-caption', yAlign: Clutter.ActorAlign.CENTER}));
+            for (const field of [...cell.fields, ...(settings.config.display.show_temperatures && cell.temperature ? [cell.temperature] : [])])
+                box.add_child(this._value(field, 'systeminfo-value'));
+            this._panel.add_child(box);
         }
-
-        return panel;
-    }
-
-    _buildMenu() {
-        for (const row of ROWS) {
-            const item = new PopupMenu.PopupBaseMenuItem({reactive: false});
-            item.add_child(new St.Label({
-                text: row.title,
-                styleClass: 'rldyour-row-title',
-                xExpand: true,
-            }));
-            item.add_child(this._valueLabel(row.field, 'rldyour-row-value'));
-            this.menu.addMenuItem(item);
+        this.add_child(this._panel);
+        this._header = new PopupMenu.PopupBaseMenuItem({reactive: false});
+        this._heading = new St.Label({text: settings.text('app_title'), xExpand: true});
+        this._header.add_child(this._heading); this.menu.addMenuItem(this._header);
+        this._status = new PopupMenu.PopupMenuItem(settings.text('disconnected'), {reactive: false});
+        this.menu.addMenuItem(this._status);
+        for (const [key, field] of ROWS) {
+            const item = new PopupMenu.PopupBaseMenuItem({can_focus: true});
+            const title = new St.Label({text: settings.text(key), xExpand: true});
+            title.set_text_direction(settings.rtl ? Clutter.TextDirection.RTL : Clutter.TextDirection.LTR);
+            title.clutter_text.set_line_alignment(settings.rtl ? Pango.Alignment.RIGHT : Pango.Alignment.LEFT);
+            item.add_child(title);
+            const value = this._value(field, 'systeminfo-value'); item.add_child(value);
+            item.connect('activate', () => this._copy(`${settings.text(key)}: ${value.text}`));
+            this._rowItems.push({item, key, value}); this.menu.addMenuItem(item);
         }
-    }
-
-    /** A label registered for updates, so `_apply` can reach it by descriptor. */
-    _valueLabel(field, styleClass) {
-        const label = new St.Label({
-            text: ABSENT,
-            styleClass,
-            yAlign: Clutter.ActorAlign.CENTER,
-        });
-
-        let labels = this._fields.get(field);
-        if (labels === undefined) {
-            labels = [];
-            this._fields.set(field, labels);
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        const copy = new PopupMenu.PopupMenuItem(settings.text('copy_report'));
+        copy.connect('activate', () => { if (this._sample) this._copy(JSON.stringify(this._sample)); });
+        this._copyItem = copy; this.menu.addMenuItem(copy);
+        const retry = new PopupMenu.PopupMenuItem(settings.text('retry'));
+        retry.connect('activate', () => this._rebuild()); this.menu.addMenuItem(retry);
+        const preferences = new PopupMenu.PopupMenuItem(settings.text('settings'));
+        preferences.connect('activate', () => this._preferences()); this.menu.addMenuItem(preferences);
+        for (const item of this.menu.box.get_children()) {
+            if (item.can_focus) item.connect('key-focus-in', () => this._reveal(item));
         }
-        labels.push(label);
-
-        return label;
+        this._style(); this._setConnected(false);
+        if (settings.ready) this._client = new Client(settings.config.sampling.interval_seconds, sample => this._apply(sample), connected => this._setConnected(connected), settings.config.transport);
+        else this._status.label.text = settings.text(settings.error ? 'error' : 'loading');
     }
-
+    _style() {
+        const settings = this._settings;
+        const saved = settings.config.display.theme;
+        const dark = saved.startsWith('dark') || saved === 'system' && this._appearance.get_string('color-scheme') === 'prefer-dark';
+        const contrast = this._contrast.high_contrast || saved.endsWith('-contrast');
+        const theme = `${dark ? 'dark' : 'light'}${contrast ? '-contrast' : ''}`;
+        const c = settings.resource.themes[theme];
+        const m = settings.resource.metrics[settings.config.display.density];
+        this._panel.style = `spacing: ${m.gap}px;`;
+        for (const child of this._panel.get_children()) {
+            if (child instanceof St.BoxLayout) child.style = `spacing: ${m.small}px;`;
+        }
+        this._header.style = `background-color: ${c.surface}; color: ${c.accent}; border-radius: ${m.radius}px; padding: ${m.row_padding}px ${m.padding}px;`;
+        this._heading.style = `font-size: ${settings.resource.typography[settings.locale].label}px; font-weight: bold;`;
+        for (const {item} of this._rowItems) {
+            item.set_text_direction(settings.rtl ? Clutter.TextDirection.RTL : Clutter.TextDirection.LTR);
+            item.style = `spacing: ${m.padding}px; padding: ${m.small}px ${m.row_padding}px; min-height: ${m.control}px;`;
+        }
+        this._constrain();
+    }
+    _constrain() {
+        const monitor = Main.layoutManager.findMonitorForActor(this) ?? Main.layoutManager.primaryMonitor;
+        if (!monitor) return;
+        const area = global.workspace_manager.get_active_workspace().get_work_area_for_monitor(monitor.index);
+        const m = this._settings.resource.metrics[this._settings.config.display.density];
+        this._scroll.style = `max-height: ${Math.max(m.control, area.height - m.padding * 2)}px;`;
+    }
+    _reveal(item) {
+        const adjustment = this._scroll.vadjustment;
+        const top = item.y;
+        const bottom = top + item.height;
+        if (top < adjustment.value) adjustment.value = top;
+        else if (bottom > adjustment.value + adjustment.page_size) adjustment.value = bottom - adjustment.page_size;
+    }
+    _value(descriptor, styleClass) {
+        const label = new St.Label({text: ABSENT, style_class: styleClass, yAlign: Clutter.ActorAlign.CENTER});
+        label.set_text_direction(Clutter.TextDirection.LTR);
+        if (!this._fields.has(descriptor)) {
+            const [path, formatter] = descriptor.split(':');
+            this._fields.set(descriptor, {path: path.split('.'), format: FORMATTERS[formatter], labels: []});
+        }
+        this._fields.get(descriptor).labels.push(label); return label;
+    }
     _apply(sample) {
-        for (const [field, labels] of this._fields) {
-            const [path, formatter] = field.split(':');
-            const text = FORMATTERS[formatter](resolve(sample, path));
-            for (const label of labels) {
-                // Assigning identical text still invalidates the actor and
-                // costs a relayout, which at this cadence is the difference
-                // between an idle panel and a permanently redrawing one.
-                if (label.text !== text)
-                    label.text = text;
-            }
+        this._sample = sample;
+        for (const {path, format, labels} of this._fields.values()) {
+            let value = sample;
+            for (const key of path) value = value?.[key];
+            const text = format(value);
+            for (const label of labels) if (label.text !== text) label.text = text;
         }
+        for (const {item, key, value} of this._rowItems) {
+            const name = `${this._settings.text(key)}: \u2068${value.text}\u2069`;
+            if (item.accessible_name !== name) item.accessible_name = name;
+        }
+        const name = `${this._settings.text('app_title')}. ${this._settings.text(sample ? 'connected' : 'disconnected')}. ${this._rowItems.filter(row => ['cpu', 'memory'].includes(row.key)).map(row => row.item.accessible_name).join('. ')}`;
+        if (this.accessible_name !== name) this.accessible_name = name;
+        if (this._copyItem.reactive !== (sample !== null)) this._copyItem.setSensitive(sample !== null);
     }
-
     _setConnected(connected) {
-        if (connected)
-            return;
-
-        // Stale numbers are worse than none: a frozen reading looks like a
-        // healthy idle system.
-        for (const labels of this._fields.values()) {
-            for (const label of labels)
-                label.text = ABSENT;
-        }
+        this._connected = connected;
+        this._status.label.text = this._settings.text(connected ? 'connected' : 'disconnected');
+        if (!connected) this._apply(null);
     }
-
+    _copy(text) { St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text); }
+    _teardown() {
+        this._client?.stop(); this._client = null;
+        this._panel?.destroy(); this._panel = null;
+        this.menu.removeAll(); this._fields.clear(); this._rowItems = [];
+    }
+    _rebuild() { this._teardown(); this._build(); }
     destroy() {
         this._settings.disconnect(this._changedId);
-        this._teardown();
-        this._settings = null;
-        super.destroy();
+        global.display.disconnect(this._workareaId);
+        this._appearance.disconnect(this._appearanceId); this._contrast.disconnect(this._contrastId);
+        this._teardown(); this._settings = null; super.destroy();
     }
 });
-
-/** Reads `a.b` out of a decoded sample, tolerating an absent branch. */
-function resolve(sample, path) {
-    let value = sample;
-    for (const key of path.split('.')) {
-        if (value === null || typeof value !== 'object')
-            return null;
-        value = value[key];
-    }
-    return value;
-}
