@@ -1,11 +1,6 @@
 //! Native CI capture of this process's visible popup, never another app's UI.
 use super::{ffi::*, popup_window};
-use std::{
-    io,
-    mem::size_of,
-    path::Path,
-    ptr::{null, null_mut},
-};
+use std::{io, mem::size_of, path::Path, ptr::null_mut};
 
 pub fn capture_popup(path: &Path) -> io::Result<bool> {
     // SAFETY: only integer handles from Win32 are traversed. A window must belong
