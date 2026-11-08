@@ -2,7 +2,11 @@
 //! temporary cleanup action to Windows Installer. No resident helper or shell.
 use crate::{Result, digest};
 use msi::{Column, Insert, Package, PackageType, Value};
-use std::{fs, io::Write, path::Path};
+use std::{
+    fs,
+    io::{Cursor, Write},
+    path::Path,
+};
 
 pub(super) fn build(root: &Path, version: &str) -> Result {
     let identity: toml::Value =
@@ -22,16 +26,10 @@ pub(super) fn build(root: &Path, version: &str) -> Result {
         &hash[17..20],
         &hash[20..32]
     );
-    let mut package = Package::create(
-        PackageType::Installer,
-        fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(root.join("maintenance.msi"))?,
-    )?;
+    let mut package = Package::create(PackageType::Installer, Cursor::new(Vec::new()))?;
+    package.set_database_codepage(msi::CodePage::Windows1252);
     let info = package.summary_info_mut();
+    info.set_codepage(msi::CodePage::Windows1252);
     info.set_title("NDDev Systeminfo maintenance");
     info.set_author("NDDev OpenNetwork");
     info.set_arch("x64");
@@ -206,7 +204,29 @@ pub(super) fn build(root: &Path, version: &str) -> Result {
             sequence.into(),
         ]))?;
     }
-    package.flush()?;
+    // msi::create uses CFB's v4 default. Windows Installer requires the v3
+    // structured-storage layout, so serialize the same MSI streams to v3.
+    let mut source = cfb::CompoundFile::open(package.into_inner()?)?;
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(root.join("maintenance.msi"))?;
+    let mut output = cfb::CompoundFile::create_with_version(cfb::Version::V3, file)?;
+    output.set_storage_clsid("/", *source.root_entry().clsid())?;
+    let streams: Vec<_> = source
+        .walk()
+        .filter(|entry| entry.is_stream())
+        .map(|entry| entry.path().to_path_buf())
+        .collect();
+    for stream in streams {
+        std::io::copy(
+            &mut source.open_stream(&stream)?,
+            &mut output.create_stream(&stream)?,
+        )?;
+    }
+    output.flush()?;
     Ok(())
 }
 
@@ -228,6 +248,9 @@ mod tests {
         let executable = b"MZ-cleanup-payload";
         fs::write(root.0.join("bin/nddev-systeminfo.exe"), executable).unwrap();
         build(&root.0, "0.3.2").unwrap();
+        let header = fs::read(root.0.join("maintenance.msi")).unwrap();
+        assert_eq!(&header[26..28], &[3, 0]);
+        assert_eq!(&header[30..32], &[9, 0]);
         let mut package =
             Package::open(fs::File::open(root.0.join("maintenance.msi")).unwrap()).unwrap();
         let mut payload = Vec::new();
