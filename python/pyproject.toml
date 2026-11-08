@@ -18,9 +18,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/NDDev-OpenNetwork/rldyour-sysinfo"
-Repository = "https://github.com/NDDev-OpenNetwork/rldyour-sysinfo"
-Issues = "https://github.com/NDDev-OpenNetwork/rldyour-sysinfo/issues"
+Homepage = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo"
+Repository = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo"
+Issues = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo/issues"
 
 [project.scripts]
 rldyour-sysinfo = "rldyour_sysinfo:main"

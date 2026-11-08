@@ -1,6 +1,6 @@
-# rldyour-sysinfo
+# NDDev Systeminfo
 
-[![CI](https://github.com/NDDev-Technocracy-OpenNetwork/rldyour-sysinfo/actions/workflows/ci.yml/badge.svg)](https://github.com/NDDev-Technocracy-OpenNetwork/rldyour-sysinfo/actions/workflows/ci.yml)
+[![CI](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo/actions/workflows/ci.yml/badge.svg)](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo/actions/workflows/ci.yml)
 
 Low-overhead live system metrics from one Rust daemon on Linux, macOS and
 Windows. Linux has a GNOME Shell indicator, macOS has a native menu bar client,
@@ -94,9 +94,9 @@ Requires Rust 1.95 or newer and GNOME Shell 46 (Ubuntu 24.04 LTS) through 50.
 Ubuntu amd64 can install the signed package repository:
 
 ```sh
-curl -fsSL https://nddev-opennetwork.github.io/rldyour-sysinfo/apt/rldyour-sysinfo.asc \
+curl -fsSL https://nddev-technocracy-opennetwork.github.io/nddev-systeminfo/apt/rldyour-sysinfo.asc \
   | sudo tee /usr/share/keyrings/rldyour-sysinfo.asc >/dev/null
-echo "deb [arch=amd64 signed-by=/usr/share/keyrings/rldyour-sysinfo.asc] https://nddev-opennetwork.github.io/rldyour-sysinfo/apt stable main" \
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/rldyour-sysinfo.asc] https://nddev-technocracy-opennetwork.github.io/nddev-systeminfo/apt stable main" \
   | sudo tee /etc/apt/sources.list.d/rldyour-sysinfo.list
 sudo apt update
 sudo apt install rldyour-sysinfo
