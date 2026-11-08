@@ -13,7 +13,7 @@ serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 nddev-opennetwork-design-tokens.workspace = true
-sha2.workspace = true
+nddev-systeminfo.workspace = true
 
 [lints]
 workspace = true

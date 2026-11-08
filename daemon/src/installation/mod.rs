@@ -65,7 +65,17 @@ pub fn digest(path: &Path) -> io::Result<String> {
         }
         digest.update(&buffer[..count]);
     }
-    Ok(format!("{:x}", digest.finalize()))
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    Ok(digest
+        .finalize()
+        .iter()
+        .flat_map(|byte| {
+            [
+                HEX[(byte >> 4) as usize] as char,
+                HEX[(byte & 15) as usize] as char,
+            ]
+        })
+        .collect())
 }
 impl Manifest {
     pub fn verify(&self, root: &Path) -> Result {
@@ -151,16 +161,6 @@ pub fn command(arguments: &[String]) -> Result<Option<serde_json::Value>> {
     if !["install", "uninstall", "service"].contains(&operation) {
         return Ok(None);
     }
-    let directory = state_dir()?;
-    fs::create_dir_all(&directory)?;
-    let lock = fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(directory.join("operation.lock"))?;
-    lock.try_lock().map_err(|_| {
-        InstallError::Invalid("another installation or service operation is running")
-    })?;
     match operation {
         "install" => {
             let mut source = std::env::current_exe()?
@@ -187,25 +187,58 @@ pub fn command(arguments: &[String]) -> Result<Option<serde_json::Value>> {
             let manifest: Manifest =
                 toml::from_str(&fs::read_to_string(source.join("manifest.toml"))?)?;
             manifest.verify(&source)?;
+            let _lock = lock()?;
             platform::install(&source, &manifest, provider_only)?;
             Ok(Some(
                 serde_json::json!({"installed":true,"version":manifest.version}),
             ))
         }
         "uninstall" if arguments.len() == 1 => {
+            let _lock = lock()?;
             platform::uninstall()?;
             Ok(Some(
                 serde_json::json!({"removed":true,"configuration_preserved":true}),
             ))
         }
-        "service" if arguments.len() == 2 => Ok(Some(platform::service(&arguments[1])?)),
+        "service" if arguments.len() == 2 => {
+            let _lock = if arguments[1] == "status" {
+                None
+            } else {
+                Some(lock()?)
+            };
+            Ok(Some(platform::service(&arguments[1])?))
+        }
         "uninstall" | "service" => Err(InstallError::Invalid("invalid installation command")),
         _ => Ok(None),
     }
 }
+fn lock() -> Result<fs::File> {
+    let directory = state_dir()?;
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(directory.parent().ok_or(InstallError::Invalid(
+        "installation state parent unavailable",
+    ))?)?;
+    builder.create(&directory)?;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(directory.join("operation.lock"))?;
+    file.try_lock().map_err(|_| {
+        InstallError::Invalid("another installation or service operation is running")
+    })?;
+    Ok(file)
+}
 fn exe(name: &str) -> String {
     format!("{name}{}", std::env::consts::EXE_SUFFIX)
 }
+#[cfg(unix)]
 fn home() -> Result<PathBuf> {
     let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
         .map(PathBuf::from)
@@ -322,5 +355,83 @@ fn remove_file(path: &Path) -> Result {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct Release(PathBuf);
+    impl Release {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let root = std::env::temp_dir().join(format!(
+                "si-release-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            fs::create_dir_all(root.join("bin")).unwrap();
+            for name in ["nddev-systeminfo", "nddev-systeminfod"] {
+                fs::write(root.join("bin").join(exe(name)), b"abc").unwrap();
+            }
+            Self(root)
+        }
+        fn manifest(&self) -> Manifest {
+            Manifest {
+                format: 1,
+                version: env!("CARGO_PKG_VERSION").into(),
+                os: std::env::consts::OS.into(),
+                architecture: std::env::consts::ARCH.into(),
+                files: ["nddev-systeminfo", "nddev-systeminfod"]
+                    .into_iter()
+                    .map(|name| File {
+                        path: Path::new("bin").join(exe(name)),
+                        sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+                            .into(),
+                        executable: true,
+                    })
+                    .collect(),
+            }
+        }
+    }
+    impl Drop for Release {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    #[test]
+    fn release_integrity_rejects_changed_extra_and_escaped_files() {
+        let release = Release::new();
+        let mut manifest = release.manifest();
+        manifest.verify(&release.0).unwrap();
+        fs::write(release.0.join("unexpected"), b"extra").unwrap();
+        assert!(manifest.verify(&release.0).is_err());
+        fs::remove_file(release.0.join("unexpected")).unwrap();
+        fs::write(release.0.join(&manifest.files[0].path), b"corrupt").unwrap();
+        assert!(manifest.verify(&release.0).is_err());
+        manifest.files[0].path = Path::new("..").join("outside");
+        assert!(manifest.verify(&release.0).is_err());
+    }
+    #[test]
+    fn atomic_install_writes_do_not_follow_a_redirected_destination() {
+        let release = Release::new();
+        let output = release.0.join("installed");
+        atomic(&output, b"old", false).unwrap();
+        atomic(&output, b"new", false).unwrap();
+        assert_eq!(fs::read(&output).unwrap(), b"new");
+        #[cfg(unix)]
+        {
+            let link = release.0.join("redirected");
+            std::os::unix::fs::symlink(&output, &link).unwrap();
+            assert!(atomic(&link, b"overwrite", false).is_err());
+            assert_eq!(fs::read(&output).unwrap(), b"new");
+        }
+        assert!(!fs::read_dir(&release.0).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".systeminfo-install-")
+        }));
     }
 }

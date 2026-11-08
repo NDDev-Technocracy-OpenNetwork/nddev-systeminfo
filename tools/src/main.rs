@@ -1,6 +1,8 @@
 //! Reproducible source checks, tools and packaging. Run builds on a build host.
 use serde::Deserialize;
+mod install_test;
 mod linux_ui;
+mod packaging;
 mod resources;
 use std::{
     collections::BTreeMap,
@@ -52,26 +54,7 @@ fn files(path: &Path) -> Result<Vec<PathBuf>> {
     Ok(result)
 }
 fn digest(path: &Path) -> Result<String> {
-    let argument = path.to_str().ok_or("non-UTF8 artifact path")?;
-    let output = if cfg!(target_os = "windows") {
-        Command::new("certutil")
-            .args(["-hashfile", argument, "SHA256"])
-            .output()?
-    } else if cfg!(target_os = "macos") {
-        Command::new("shasum")
-            .args(["-a", "256", argument])
-            .output()?
-    } else {
-        Command::new("sha256sum").arg(path).output()?
-    };
-    if !output.status.success() {
-        return Err("artifact digest failed".into());
-    }
-    String::from_utf8(output.stdout)?
-        .split_whitespace()
-        .find(|word| word.len() == 64 && word.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .map(|value| value.to_ascii_lowercase())
-        .ok_or_else(|| "artifact digest is missing".into())
+    Ok(nddev_systeminfo::installation::digest(path)?)
 }
 fn setup() -> Result {
     let tools: Toolchain = toml::from_str(include_str!("../toolchain.toml"))?;
@@ -658,6 +641,8 @@ fn run() -> Result {
         Some("ui-linux") => linux_ui::run(),
         Some("ui-linux-session") => linux_ui::session(),
         Some("measure") => resources::measure(),
+        Some("package") => packaging::package().map(|_| ()),
+        Some("install-test") => install_test::run(),
         _ => Err("usage: systeminfo-tools <setup|generate|check|test>".into()),
     }
 }

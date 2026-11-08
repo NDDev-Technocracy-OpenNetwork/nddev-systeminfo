@@ -108,7 +108,6 @@ unsafe extern "system" {
         class: *const u16,
         title: *const u16,
     ) -> Handle;
-    pub(super) fn GetWindowThreadProcessId(window: Handle, pid: *mut u32) -> u32;
     pub(super) fn GetWindowRect(window: Handle, rect: *mut Rectangle) -> i32;
     pub(super) fn UpdateWindow(window: Handle) -> i32;
     pub(super) fn GetDC(window: Handle) -> Handle;
@@ -137,6 +136,8 @@ unsafe extern "system" {
 #[link(name = "user32")]
 unsafe extern "system" {
     pub(super) fn RegisterClassW(class: *const WindowClass) -> u16;
+    pub(super) fn FindWindowW(class: *const u16, title: *const u16) -> Handle;
+    pub(super) fn GetWindowThreadProcessId(window: Handle, pid: *mut u32) -> u32;
     pub(super) fn UnregisterClassW(name: *const u16, instance: Handle) -> i32;
     pub(super) fn CreateWindowExW(
         style: u32,

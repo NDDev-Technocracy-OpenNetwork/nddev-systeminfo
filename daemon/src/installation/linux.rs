@@ -30,7 +30,7 @@ pub(super) fn install(source: &Path, manifest: &Manifest, provider_only: bool) -
         || manager(&["show", SOCKET, "--property=LoadState", "--value"], false)
             .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == "loaded");
     // Probe the real user manager before replacing any installed executable.
-    manager(&["show-environment"], true)?;
+    manager(&["show", "--property=Version", "--value"], true)?;
     let masked = units.join(SOCKET).is_symlink()
         && fs::read_link(units.join(SOCKET))? == Path::new("/dev/null");
     let unit = include_str!("../../../daemon/systemd/rldyour-sysinfod.service").replace(
@@ -96,7 +96,9 @@ pub(super) fn service(operation: &str) -> Result<serde_json::Value> {
         ),
         "apply" => {
             let active = manager(&["is-active", SERVICE], false)?.status.success();
-            manager(&["try-restart", SERVICE], true)?;
+            if active {
+                manager(&["try-restart", SERVICE], true)?;
+            }
             Ok(serde_json::json!({"applied":active}))
         }
         "start" => {
