@@ -10,6 +10,24 @@ use std::{
     ptr::{null, null_mut},
 };
 type Handle = *mut c_void;
+#[link(name = "msi")]
+unsafe extern "system" {
+    fn MsiQueryProductStateW(product: *const u16) -> i32;
+}
+/// Query Windows Installer's current-user registration directly. Its product
+/// database is authoritative; ARP registry locations vary by context/bitness.
+pub fn installed_product(code: &str) -> io::Result<bool> {
+    let code = wide(Path::new(code))?;
+    // SAFETY: the NUL-terminated UTF-16 product code lives through this read-only
+    // synchronous query. The API returns a value and transfers no resources.
+    match unsafe { MsiQueryProductStateW(code.as_ptr()) } {
+        5 => Ok(true),
+        -1 | 1 | 2 => Ok(false),
+        state => Err(io::Error::other(format!(
+            "Windows Installer product state {state}"
+        ))),
+    }
+}
 #[repr(C)]
 struct Startup {
     size: u32,
