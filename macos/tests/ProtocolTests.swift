@@ -25,7 +25,7 @@ import Foundation
         }
         precondition(resources.language("system", preferred: ["fr", "kk-KZ"]) == "kk")
         precondition(resources.defaults.sampling.intervalSeconds == 5)
-        precondition(!resources.defaults.sampling.gpu)
+        precondition(resources.defaults.sampling.gpu)
         print("PASS: typed v1 samples, unavailable metrics, finite formatting, binary rates")
     }
 }

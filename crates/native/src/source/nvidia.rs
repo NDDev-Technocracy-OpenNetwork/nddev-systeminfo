@@ -1,78 +1,116 @@
-//! NVIDIA GPU load, memory and temperature through NVML.
-//!
-//! The proprietary NVIDIA driver publishes no utilisation or temperature
-//! through procfs, sysfs or an hwmon node, and exposes nothing comparable on
-//! Windows either, so NVML is the only interface that answers on both
-//! platforms. It is loaded once at startup: its initialiser resolves every
-//! symbol in the driver library, so repeating it per tick would dominate the
-//! cost of the whole sample.
-//!
-//! NVML is also the daemon's entire memory cost — roughly twenty megabytes of
-//! driver-side state against half a megabyte for everything else — which is
-//! why it stays one environment variable away and can be compiled out with
-//! `--no-default-features`. Absence of a driver is not an error: the daemon
-//! simply reports no GPU and every other metric keeps flowing.
-
-/// One reading off the primary adapter.
-pub(super) struct Reading {
-    /// Share of the sampling period the GPU was busy, in percent.
-    pub(super) usage: Option<f32>,
-    /// Share of video memory in use, in percent.
-    pub(super) memory: Option<f32>,
-    pub(super) temperature: Option<f32>,
-}
-
+//! NVML stays loaded only while an enabled, awake NVIDIA adapter needs it.
+//! Initialization uses NO_ATTACH; Linux supplies only PCI devices already awake.
+use crate::proto::analysis::Gpu as Device;
+#[cfg(feature = "nvidia")]
+use crate::proto::analysis::MAX_GPUS;
+#[cfg(feature = "nvidia")]
+use crate::source::gpu;
+use crate::source::gpu::Reading;
 #[cfg(feature = "nvidia")]
 pub(super) struct Gpu {
     nvml: Option<nvml_wrapper::Nvml>,
+    devices: Vec<Device>,
+    names: Vec<(String, String)>,
 }
-
 #[cfg(feature = "nvidia")]
 impl Gpu {
     pub(super) fn new(enabled: bool) -> Self {
-        if !enabled {
-            return Self { nvml: None };
-        }
         Self {
-            nvml: nvml_wrapper::Nvml::init().ok(),
+            nvml: enabled
+                .then(|| {
+                    nvml_wrapper::Nvml::init_with_flags(
+                        nvml_wrapper::bitmasks::InitFlags::NO_GPUS
+                            | nvml_wrapper::bitmasks::InitFlags::NO_ATTACH,
+                    )
+                    .ok()
+                })
+                .flatten(),
+            devices: Vec::new(),
+            names: Vec::new(),
         }
     }
-
-    pub(super) fn read(&self) -> Option<Reading> {
+    pub(super) fn available(&self) -> bool {
+        self.nvml.is_some()
+    }
+    pub(super) fn devices(&self) -> &[Device] {
+        &self.devices
+    }
+    pub(super) fn read_selected(&mut self, pci: Option<&[String]>) -> Option<Reading> {
         use nvml_wrapper::enum_wrappers::device::TemperatureSensor;
-
-        // Cheap handle lookup against the already-initialised library; the
-        // device cannot be cached because it borrows the NVML instance.
-        let device = self.nvml.as_ref()?.device_by_index(0).ok()?;
-        let usage = device
-            .utilization_rates()
-            .ok()
-            .map(|value| value.gpu as f32);
-        let memory = device.memory_info().ok().and_then(|memory| {
-            (memory.total > 0).then(|| memory.used as f32 * 100.0 / memory.total as f32)
-        });
-
-        Some(Reading {
-            usage,
-            memory,
-            temperature: device
+        self.devices.clear();
+        self.names
+            .retain(|(id, _)| pci.is_none_or(|ids| ids.iter().any(|current| current == id)));
+        let nvml = self.nvml.as_ref()?;
+        let count = pci
+            .map_or_else(
+                || nvml.device_count().unwrap_or(0) as usize,
+                <[String]>::len,
+            )
+            .min(MAX_GPUS);
+        for index in 0..count {
+            let result = if let Some(ids) = pci {
+                nvml.device_by_pci_bus_id(ids[index].as_str())
+            } else {
+                nvml.device_by_index(index as u32)
+            };
+            let Ok(device) = result else {
+                continue;
+            };
+            let key = pci.map_or_else(|| index.to_string(), |ids| ids[index].clone());
+            let name = if let Some((_, name)) = self.names.iter().find(|(id, _)| id == &key) {
+                name.clone()
+            } else {
+                let name = gpu::label(device.name().unwrap_or_else(|_| "NVIDIA GPU".into()));
+                self.names.push((key.clone(), name.clone()));
+                name
+            };
+            let usage = device
+                .utilization_rates()
+                .ok()
+                .map(|v| f64::from(v.gpu))
+                .filter(|v| (0.0..=100.0).contains(v));
+            let memory = device
+                .memory_info()
+                .ok()
+                .filter(|m| m.total > 0 && m.used <= m.total);
+            let temperature = device
                 .temperature(TemperatureSensor::Gpu)
                 .ok()
-                .map(|value| value as f32),
-        })
+                .map(f64::from)
+                .filter(|v| (1.0..=150.0).contains(v));
+            self.devices.push(Device {
+                id: format!("pci:{key}"),
+                name,
+                status: if usage.is_some() || memory.is_some() || temperature.is_some() {
+                    "available"
+                } else {
+                    "unavailable"
+                }
+                .into(),
+                usage,
+                dedicated_used: memory.as_ref().map(|m| m.used),
+                dedicated_total: memory.as_ref().map(|m| m.total),
+                shared_used: None,
+                temperature,
+            });
+        }
+        gpu::aggregate(&self.devices)
     }
 }
-
 #[cfg(not(feature = "nvidia"))]
 pub(super) struct Gpu;
-
 #[cfg(not(feature = "nvidia"))]
 impl Gpu {
     pub(super) fn new(_enabled: bool) -> Self {
         Self
     }
-
-    pub(super) fn read(&self) -> Option<Reading> {
+    pub(super) fn available(&self) -> bool {
+        false
+    }
+    pub(super) fn devices(&self) -> &[Device] {
+        &[]
+    }
+    pub(super) fn read_selected(&mut self, _pci: Option<&[String]>) -> Option<Reading> {
         None
     }
 }

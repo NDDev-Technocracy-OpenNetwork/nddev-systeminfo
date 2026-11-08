@@ -1,6 +1,13 @@
 //! Generated v1 types; the JSON Schema is the authoritative public contract.
 use serde::Deserialize;
 use std::fmt::Write;
+pub mod analysis;
+#[derive(Clone, Copy, serde::Serialize)]
+pub struct Metric {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub unit: &'static str,
+}
 
 /// Machine-readable public contract.
 pub const SCHEMA: &str = include_str!("../../../contracts/snapshot-v1.schema.json");

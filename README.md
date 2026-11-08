@@ -91,8 +91,9 @@ APT and socket trust state during the product rename.
 
 All defaults live in [config/default.toml](config/default.toml). A user file is
 complete, typed TOML; unknown, missing and out-of-range fields are rejected.
-The provider starts with GPU collection disabled and a five-second cadence.
-Hardware libraries are loaded only when needed.
+New configurations use passive GPU collection and a five-second cadence.
+Existing explicit preferences are preserved. Suspended adapters are not probed;
+hardware libraries are loaded only when needed.
 
 ```console
 nddev-systeminfo config path
@@ -102,6 +103,9 @@ nddev-systeminfo config set sampling.interval_seconds 0
 nddev-systeminfo sample
 nddev-systeminfo watch
 nddev-systeminfo schema
+nddev-systeminfo sample --details
+nddev-systeminfo analyze --metric core:0 --range-seconds 3600 --once
+nddev-systeminfo ui
 ```
 
 `0` selects realtime, capped at 500 ms. Field edits are atomic and serialized
@@ -122,6 +126,22 @@ nddev-systeminfo service status
 Configuration follows XDG on Linux, Application Support on macOS and LocalAppData
 on Windows. Product settings use TOML; OS path and locale conventions remain native.
 
+Click a metric cell to open native details. Processor details show every logical
+core, with bounded pages on large hosts. GPU details distinguish disabled,
+unavailable and sleeping adapters; shared memory is bytes, separately from
+dedicated memory. The native analysis window selects any reading or core,
+15/30/60-minute ranges, pause/resume and JSON copy. OpenNetwork's themes and
+five locales also apply to these windows, with a direct website action.
+The installed `ui` launcher opens the overview. Linux also accepts a metric
+shortcut; macOS and Windows use the running app's profile and window controls.
+
+History records up to one hour while a native monitoring client is connected,
+bounded by 7201 records and 8 MiB of retained record estimates. The window shows
+actual covered time; gaps and unsupported readings remain visible. History is
+RAM-only and clears after idle release. Ordinary v1 integration clients keep
+only a cached current sample unless they explicitly request recording. See
+[the negotiated analysis contract](docs/protocol.md#native-analysis-and-history).
+
 ## Resource behavior
 
 One demand-driven sampler serves all clients at the fastest requested cadence.
@@ -134,7 +154,7 @@ A release-build comparison on one Linux host used separate executable copies,
 realtime demand, ten seconds of active measurement and ten seconds of idle CPU
 measurement after resource release:
 
-These measurements use the 0.3.2 candidate; 0.3.3 and 0.3.4 correct distribution
+The following historical measurements use the 0.3.2 candidate; 0.3.3 and 0.3.4 correct distribution
 and package lifecycle while keeping the same collector and resource policy.
 
 | Provider profile | Active PSS | PSS after release | Threads |
@@ -145,8 +165,8 @@ and package lifecycle while keeping the same collector and resource policy.
 | 0.3.2, GPU enabled | about 24.4 MiB | about 5 MiB | 3 |
 
 The expanded configuration, diagnostics and contracts have a measurable cost
-against the older GPU-disabled provider. Disabling GPU by default and releasing
-its collector remove the much larger driver cost. Idle measurements recorded no
+against the older GPU-disabled provider. That version disabled GPU by default;
+releasing its collector removed the much larger retained driver cost. Idle measurements recorded no
 additional CPU ticks within their resolution. These Linux measurements describe
 that run; they do not substitute for macOS footprint or Windows working-set data.
 

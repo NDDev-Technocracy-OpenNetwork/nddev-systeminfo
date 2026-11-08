@@ -6,7 +6,8 @@
 //! hypervisors and VPN clients create.
 
 use crate::source::counters::Counter;
-use std::{collections::BTreeMap, time::Instant};
+use std::io;
+use std::{collections::BTreeMap, ffi::OsString, time::Instant};
 use sysinfo::Networks;
 
 /// Substrings that mark an adapter as software-emulated rather than a wire.
@@ -32,7 +33,7 @@ const VIRTUAL_ADAPTERS: &[&str] = &[
 
 pub(super) struct Network {
     networks: Networks,
-    counters: BTreeMap<String, Counter>,
+    counters: BTreeMap<OsString, Counter>,
 }
 
 pub(super) struct Throughput {
@@ -41,11 +42,11 @@ pub(super) struct Throughput {
 }
 
 impl Network {
-    pub(super) fn new() -> Self {
-        Self {
-            networks: Networks::new_with_refreshed_list(),
+    pub(super) fn new() -> io::Result<Self> {
+        Ok(Self {
+            networks: Networks::new_with_refreshed_list().map_err(io::Error::other)?,
             counters: BTreeMap::new(),
-        }
+        })
     }
 
     /// Bytes received and transmitted per second across physical interfaces.
@@ -60,10 +61,10 @@ impl Network {
         let mut total = Throughput { rx: 0, tx: 0 };
         let mut found = false;
         for (name, data) in self.networks.iter() {
-            if VIRTUAL_ADAPTERS
-                .iter()
-                .any(|marker| contains_marker(name, marker))
-            {
+            if VIRTUAL_ADAPTERS.iter().any(|marker| {
+                name.to_str()
+                    .is_some_and(|name| contains_marker(name, marker))
+            }) {
                 continue;
             }
             // Allocate a key only when an interface first appears.

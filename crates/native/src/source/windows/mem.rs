@@ -1,5 +1,6 @@
 //! Windows memory and swap pressure from system counters.
 
+use std::io;
 use sysinfo::{MemoryRefreshKind, RefreshKind, System};
 
 pub(super) struct Memory {
@@ -14,12 +15,13 @@ pub(super) struct Usage {
 }
 
 impl Memory {
-    pub(super) fn new() -> Self {
-        Self {
+    pub(super) fn new() -> io::Result<Self> {
+        Ok(Self {
             system: System::new_with_specifics(
                 RefreshKind::nothing().with_memory(MemoryRefreshKind::everything()),
-            ),
-        }
+            )
+            .map_err(io::Error::other)?,
+        })
     }
 
     pub(super) fn usage(&mut self) -> Option<Usage> {

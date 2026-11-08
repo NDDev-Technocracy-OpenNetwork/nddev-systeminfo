@@ -29,6 +29,53 @@ unsafe extern "system" {
     fn GetCurrentThreadId() -> u32;
 }
 struct Attachment(u32, u32);
+pub struct ProcessResources {
+    pub working_set_bytes: usize,
+    pub private_commit_bytes: usize,
+    pub gdi_handles: u32,
+    pub user_handles: u32,
+}
+#[repr(C)]
+struct MemoryCounters {
+    size: u32,
+    faults: u32,
+    peak_working: usize,
+    working: usize,
+    peak_paged: usize,
+    paged: usize,
+    peak_nonpaged: usize,
+    nonpaged: usize,
+    pagefile: usize,
+    peak_pagefile: usize,
+    private: usize,
+}
+#[link(name = "psapi")]
+unsafe extern "system" {
+    fn GetProcessMemoryInfo(process: Handle, counters: *mut MemoryCounters, size: u32) -> i32;
+}
+#[link(name = "user32")]
+unsafe extern "system" {
+    fn GetGuiResources(process: Handle, flags: u32) -> u32;
+}
+pub fn process_resources() -> io::Result<ProcessResources> {
+    // SAFETY: the current-process pseudo handle is borrowed; a correctly sized,
+    // initialized SDK-layout buffer lives through this synchronous read.
+    unsafe {
+        let process = -1_isize as Handle;
+        let mut counters: MemoryCounters = std::mem::zeroed();
+        let size = size_of::<MemoryCounters>() as u32;
+        counters.size = size;
+        if GetProcessMemoryInfo(process, &mut counters, size) == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(ProcessResources {
+            working_set_bytes: counters.working,
+            private_commit_bytes: counters.private,
+            gdi_handles: GetGuiResources(process, 0),
+            user_handles: GetGuiResources(process, 1),
+        })
+    }
+}
 impl Drop for Attachment {
     fn drop(&mut self) {
         unsafe {
@@ -98,6 +145,93 @@ pub fn capture_popup(path: &Path) -> io::Result<bool> {
         {
             return Ok(false);
         }
+        capture_window(window, path)
+    }
+}
+fn dashboard_window() -> Option<Handle> {
+    // SAFETY: borrowed handle is accepted only for our own visible window.
+    unsafe {
+        let window = FindWindowW(
+            super::wide("org.nddev.systeminfo.analysis").as_ptr(),
+            std::ptr::null(),
+        );
+        let mut owner = 0;
+        if window.is_null() || IsWindowVisible(window) == 0 {
+            return None;
+        }
+        GetWindowThreadProcessId(window, &mut owner);
+        (owner == std::process::id()).then_some(window)
+    }
+}
+pub fn dashboard_visible() -> bool {
+    dashboard_window().is_some()
+}
+pub fn capture_dashboard(path: &Path) -> io::Result<bool> {
+    let Some(window) = dashboard_window() else {
+        return Ok(false);
+    };
+    capture_window(window, path)
+}
+/// Read standard label names, which Windows exposes to assistive clients.
+pub fn dashboard_labels() -> io::Result<Vec<String>> {
+    let Some(window) = dashboard_window() else {
+        return Ok(Vec::new());
+    };
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetWindowTextW(window: Handle, text: *mut u16, count: i32) -> i32;
+    }
+    let mut labels = Vec::new();
+    let mut after = null_mut();
+    // SAFETY: enumerate only standard child labels of our verified own window.
+    // The bounded UTF-16 buffer lives through each synchronous native read.
+    unsafe {
+        for _ in 0..512 {
+            let label = FindWindowExW(
+                window,
+                after,
+                super::wide("STATIC").as_ptr(),
+                std::ptr::null(),
+            );
+            if label.is_null() {
+                return Ok(labels);
+            }
+            let mut text = vec![0_u16; 16385];
+            let length = GetWindowTextW(label, text.as_mut_ptr(), text.len() as i32);
+            if length < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            labels.push(String::from_utf16_lossy(&text[..length as usize]));
+            after = label;
+        }
+    }
+    Err(io::Error::other("native label enumeration exceeded bounds"))
+}
+pub fn click_dashboard(id: u32) -> io::Result<bool> {
+    disposable_desktop()?;
+    let Some(window) = dashboard_window() else {
+        return Ok(false);
+    };
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetDlgItem(window: Handle, id: i32) -> Handle;
+        fn SendMessageW(window: Handle, message: u32, wparam: usize, lparam: isize) -> isize;
+    }
+    // SAFETY: the standard button belongs to the verified owned window. Its
+    // normal BM_CLICK path generates the same BN_CLICKED command as input.
+    unsafe {
+        let button = GetDlgItem(window, id as i32);
+        if button.is_null() {
+            return Ok(false);
+        }
+        SendMessageW(button, 0x00f5, 0, 0);
+        Ok(true)
+    }
+}
+fn capture_window(window: Handle, path: &Path) -> io::Result<bool> {
+    // SAFETY: callers verified that this visible window belongs to this process;
+    // bitmap dimensions are bounded before allocating and GDI ownership balances.
+    unsafe {
         UpdateWindow(window);
         DwmFlush();
         let mut rect = Rectangle {

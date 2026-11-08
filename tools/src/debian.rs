@@ -87,6 +87,19 @@ pub(super) fn package() -> Result {
             false,
         )?;
     }
+    copy(
+        Path::new("packaging/linux/nddev-systeminfo.desktop"),
+        &root.join(format!(
+            "usr/share/applications/{}.desktop",
+            nddev_systeminfo::desktop::application_id()
+        )),
+        false,
+    )?;
+    copy(
+        &extension.join("resources/brand-symbolic.svg"),
+        &root.join("usr/share/icons/hicolor/scalable/apps/nddev-systeminfo-symbolic.svg"),
+        false,
+    )?;
     for file in [
         "LICENSE",
         "NOTICE",

@@ -71,6 +71,7 @@ pub(super) fn install(source: &Path, manifest: &Manifest, provider_only: bool) -
         )?;
     }
     if !provider_only {
+        crate::desktop::stop_ui();
         let payload = source.join("ui/extension");
         if !payload.is_dir() {
             return Err(InstallError::Invalid("release lacks the GNOME frontend"));
@@ -98,6 +99,23 @@ pub(super) fn install(source: &Path, manifest: &Manifest, provider_only: bool) -
         if backup.exists() {
             fs::remove_dir_all(backup)?;
         }
+        let data = extension
+            .ancestors()
+            .nth(3)
+            .ok_or(InstallError::Invalid("native data directory missing"))?;
+        atomic(
+            &data.join(format!(
+                "applications/{}.desktop",
+                crate::desktop::application_id()
+            )),
+            include_bytes!("../../../packaging/linux/nddev-systeminfo.desktop"),
+            false,
+        )?;
+        copy_file(
+            &source.join("ui/extension/resources/brand-symbolic.svg"),
+            &data.join("icons/hicolor/scalable/apps/nddev-systeminfo-symbolic.svg"),
+            false,
+        )?;
     }
     manager(&["daemon-reload"], true)?;
     if !existing && !service_masked {
@@ -153,6 +171,7 @@ pub(super) fn uninstall() -> Result {
     if !state_dir()?.join("manifest.toml").is_file() {
         return Err(InstallError::Invalid("no owned user installation receipt"));
     }
+    crate::desktop::stop_ui();
     manager(&["disable", "--now", SOCKET], true)?;
     manager(&["stop", SERVICE], true)?;
     for name in [SOCKET, SERVICE] {
@@ -166,8 +185,17 @@ pub(super) fn uninstall() -> Result {
         if extension.is_symlink() {
             return Err(InstallError::Invalid("extension destination is redirected"));
         }
-        fs::remove_dir_all(extension)?;
+        fs::remove_dir_all(&extension)?;
     }
+    let data = extension
+        .ancestors()
+        .nth(3)
+        .ok_or(InstallError::Invalid("native data directory missing"))?;
+    remove_file(&data.join(format!(
+        "applications/{}.desktop",
+        crate::desktop::application_id()
+    )))?;
+    remove_file(&data.join("icons/hicolor/scalable/apps/nddev-systeminfo-symbolic.svg"))?;
     remove_file(&state_dir()?.join("manifest.toml"))?;
     Ok(())
 }

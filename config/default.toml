@@ -1,7 +1,7 @@
 # All shipped defaults live here. An explicit user file is validated in full.
 [sampling]
 interval_seconds = 5
-gpu = false
+gpu = true
 idle_release_seconds = 30
 
 [transport]

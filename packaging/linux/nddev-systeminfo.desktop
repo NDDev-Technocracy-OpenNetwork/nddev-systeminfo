@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=NDDev Systeminfo
+Comment=Native system readings and last-hour analysis
+Exec=nddev-systeminfo ui
+Icon=nddev-systeminfo-symbolic
+Terminal=false
+Categories=System;Monitor;
+StartupNotify=true

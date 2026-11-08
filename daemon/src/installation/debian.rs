@@ -5,6 +5,78 @@ use std::os::unix::fs::PermissionsExt;
 const SOCKET: &str = "rldyour-sysinfod.socket";
 const SERVICE: &str = "rldyour-sysinfod.service";
 
+fn live_host() -> bool {
+    std::env::var_os("DPKG_ROOT").is_none_or(|root| root.is_empty())
+        && Path::new("/run/systemd/system").exists()
+}
+fn active_user_ids() -> Result<Vec<u32>> {
+    let users = run(
+        "systemctl",
+        &[
+            "--no-legend".as_ref(),
+            "--plain".as_ref(),
+            "--quiet".as_ref(),
+            "list-units".as_ref(),
+            "user@*.service".as_ref(),
+        ],
+        true,
+    )?;
+    Ok(String::from_utf8_lossy(&users.stdout)
+        .lines()
+        .filter_map(|line| {
+            line.split_whitespace()
+                .next()
+                .and_then(|name| name.strip_prefix("user@"))
+                .and_then(|name| name.strip_suffix(".service"))
+                .and_then(|uid| uid.parse().ok())
+        })
+        .collect())
+}
+fn stop_ui_users() -> Result {
+    if !live_host() || !Path::new("/usr/bin/gapplication").is_file() {
+        return Ok(());
+    }
+    for uid in active_user_ids()? {
+        let bus = format!("/run/user/{uid}/bus");
+        if !Path::new(&bus).exists() {
+            continue;
+        }
+        let passwd = run(
+            "getent",
+            &["passwd".as_ref(), uid.to_string().as_ref()],
+            false,
+        )?;
+        let record = String::from_utf8_lossy(&passwd.stdout);
+        let Some(user) = record
+            .lines()
+            .next()
+            .and_then(|line| line.split(':').next())
+            .filter(|user| !user.is_empty())
+        else {
+            continue;
+        };
+        // Only the product's own action on an existing user's bus. runuser drops
+        // root privileges and supplementary groups; no home is traversed.
+        let address = format!("DBUS_SESSION_BUS_ADDRESS=unix:path={bus}");
+        let _ = run(
+            "runuser",
+            &[
+                "--user".as_ref(),
+                user.as_ref(),
+                "--".as_ref(),
+                "env".as_ref(),
+                address.as_ref(),
+                "/usr/bin/gapplication".as_ref(),
+                "action".as_ref(),
+                crate::desktop::application_id().as_ref(),
+                "quit".as_ref(),
+            ],
+            false,
+        )?;
+    }
+    Ok(())
+}
+
 fn helper(arguments: &[&str], probe: bool) -> Result<bool> {
     let arguments: Vec<_> = arguments.iter().map(std::ffi::OsStr::new).collect();
     let output = run("deb-systemd-helper", &arguments, false)?;
@@ -18,9 +90,7 @@ fn helper(arguments: &[&str], probe: bool) -> Result<bool> {
     }
 }
 fn manager(action: &str, units: &[&str]) -> Result {
-    if std::env::var_os("DPKG_ROOT").is_some_and(|root| !root.is_empty())
-        || !Path::new("/run/systemd/system").exists()
-    {
+    if !live_host() {
         return Ok(());
     }
     if action == "restart" {
@@ -56,27 +126,7 @@ fn restart_users(units: &[&str]) -> Result {
             }
         }
     }
-    let users = run(
-        "systemctl",
-        &[
-            "--no-legend".as_ref(),
-            "--plain".as_ref(),
-            "--quiet".as_ref(),
-            "list-units".as_ref(),
-            "user@*.service".as_ref(),
-        ],
-        true,
-    )?;
-    for line in String::from_utf8_lossy(&users.stdout).lines() {
-        let Some(uid) = line
-            .split_whitespace()
-            .next()
-            .and_then(|name| name.strip_prefix("user@"))
-            .and_then(|name| name.strip_suffix(".service"))
-            .and_then(|uid| uid.parse::<u32>().ok())
-        else {
-            continue;
-        };
+    for uid in active_user_ids()? {
         let instance = format!("{uid}@");
         let mut admitted: Vec<&std::ffi::OsStr> = Vec::new();
         for unit in units {
@@ -146,6 +196,7 @@ pub fn maintain() -> Result {
             manager("restart", &[SOCKET, SERVICE])?;
         }
         ("prerm", "remove" | "deconfigure") => {
+            stop_ui_users()?;
             manager("stop", &[SERVICE, SOCKET])?;
             helper(&["--user", "mask", SOCKET], false)?;
         }

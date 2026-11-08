@@ -3,6 +3,7 @@
 //! window/menu/icon; other threads post wakeups through a bounded latest value.
 #[cfg(feature = "ui-acceptance")]
 pub mod acceptance;
+pub mod dashboard;
 mod ffi;
 use ffi::*;
 use std::{
@@ -23,6 +24,8 @@ const OPEN: u32 = 0x8003;
 const CONFIG_CHANGED: u32 = 0x8004;
 const THEME_CHANGED: u32 = 0x8005;
 const CANCEL_MENU: u32 = 0x8006;
+const DASHBOARD: u32 = 0x8007;
+const COMMAND: u32 = 0x8008;
 const CLOSE: u32 = 0x0010;
 thread_local! { static DEFERRED: Cell<u8> = const { Cell::new(0) }; }
 thread_local! { static POPUP: RefCell<Option<Popup>> = const { RefCell::new(None) }; }
@@ -61,10 +64,38 @@ struct Shared {
     window: usize,
     model: Model,
     pending: bool,
+    dashboard: Option<dashboard::Model>,
+    dashboard_pending: bool,
 }
 #[derive(Clone)]
 pub struct Proxy(Arc<Mutex<Shared>>);
 impl Proxy {
+    pub fn dashboard(&self, model: Option<dashboard::Model>) {
+        let mut state = self.0.lock().unwrap();
+        if state.dashboard == model {
+            return;
+        }
+        state.dashboard = model;
+        if state.window != 0 && !state.dashboard_pending {
+            state.dashboard_pending = true;
+            // SAFETY: synchronized creator-thread window; integer wakeup only.
+            unsafe {
+                PostMessageW(state.window as Handle, DASHBOARD, 0, 0);
+            }
+        }
+    }
+    pub fn open_dashboard(&self) {
+        self.post_command(dashboard::OPEN);
+    }
+    fn post_command(&self, id: u32) {
+        let state = self.0.lock().unwrap();
+        if state.window != 0 {
+            // SAFETY: shared ownership prevents posting after destruction.
+            unsafe {
+                PostMessageW(state.window as Handle, COMMAND, id as usize, 0);
+            }
+        }
+    }
     pub fn update(&self, model: Model) {
         let mut state = self.0.lock().unwrap();
         if state.model == model {
@@ -116,6 +147,14 @@ pub struct Tray {
     _creator_thread: PhantomData<Rc<()>>,
 }
 impl Tray {
+    pub fn activate_existing(identity: &str) -> bool {
+        // SAFETY: integer activation only, no payload or borrowed state. The
+        // identity is the same singleton/class name used by this native product.
+        unsafe {
+            let window = FindWindowW(wide(identity).as_ptr(), null());
+            !window.is_null() && PostMessageW(window, COMMAND, dashboard::OPEN as usize, 0) != 0
+        }
+    }
     pub fn new(identity: &str, model: Model) -> io::Result<Option<Self>> {
         let name = wide(&format!("Local\\{identity}"));
         // SAFETY: NUL-terminated names live through each synchronous call. The
@@ -190,6 +229,8 @@ impl Tray {
             window: window as usize,
             model,
             pending: false,
+            dashboard: None,
+            dashboard_pending: false,
         })));
         let taskbar_created = unsafe { RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()) };
         TASKBAR_MESSAGE.store(taskbar_created, std::sync::atomic::Ordering::Relaxed);
@@ -258,6 +299,7 @@ impl Tray {
         Ok(())
     }
     pub fn run(mut self, mut on_event: impl FnMut(Event, &Proxy)) -> io::Result<()> {
+        let mut dashboard: Option<dashboard::Window> = None;
         loop {
             // SAFETY: GetMessage initializes this POD on success. This thread
             // owns the window and dispatches until WM_QUIT; no polling timer.
@@ -268,6 +310,24 @@ impl Tray {
                 _ => {}
             }
             match message.message {
+                DASHBOARD => {
+                    let model = {
+                        let mut state = self.proxy.0.lock().unwrap();
+                        state.dashboard_pending = false;
+                        state.dashboard.clone()
+                    };
+                    match model {
+                        Some(model) => match &mut dashboard {
+                            Some(window) => window.update(model)?,
+                            None => {
+                                dashboard =
+                                    Some(dashboard::Window::new(self.window, model, self.icon)?)
+                            }
+                        },
+                        None => dashboard = None,
+                    }
+                }
+                COMMAND => on_event(Event::Command(message.wparam as u32), &self.proxy),
                 UPDATE => {
                     self.refresh()?;
                 }
@@ -303,10 +363,18 @@ impl Tray {
                 value if value == self.taskbar_created => {
                     self.add_icon()?;
                 }
-                _ => unsafe {
-                    TranslateMessage(&message);
-                    DispatchMessageW(&message);
-                },
+                _ => {
+                    if !dashboard
+                        .as_ref()
+                        .is_some_and(|window| window.dialog(&message))
+                    {
+                        // SAFETY: initialized MSG and creator-thread windows.
+                        unsafe {
+                            TranslateMessage(&message);
+                            DispatchMessageW(&message);
+                        }
+                    }
+                }
             }
         }
     }
@@ -412,7 +480,10 @@ unsafe extern "system" fn procedure(
                 0
             }
             CALLBACK => {
-                if matches!((lparam as u32) & 0xffff, 0x0205 | 0x007b | 0x0400 | 0x0401) {
+                let action = (lparam as u32) & 0xffff;
+                if matches!(action, 0x0400 | 0x0401) {
+                    PostMessageW(window, COMMAND, dashboard::OPEN as usize, 0);
+                } else if matches!(action, 0x0205 | 0x007b) {
                     PostMessageW(window, OPEN, wparam, 1);
                 }
                 0
@@ -686,6 +757,43 @@ pub fn system_language() -> String {
         "en".into()
     }
 }
+pub fn open_url(url: &str) -> io::Result<()> {
+    if !url.starts_with("https://") || url.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "expected an HTTPS website",
+        ));
+    }
+    #[link(name = "shell32")]
+    unsafe extern "system" {
+        fn ShellExecuteW(
+            window: Handle,
+            operation: *const u16,
+            file: *const u16,
+            parameters: *const u16,
+            directory: *const u16,
+            show: i32,
+        ) -> Handle;
+    }
+    // SAFETY: Shell copies validated URL and operation strings synchronously;
+    // no shell command, borrowed window or retained pointer is supplied.
+    let result = unsafe {
+        ShellExecuteW(
+            null_mut(),
+            wide("open").as_ptr(),
+            wide(url).as_ptr(),
+            null(),
+            null(),
+            1,
+        )
+    };
+    if result as usize > 32 {
+        Ok(())
+    } else {
+        Err(io::Error::other("could not open website"))
+    }
+}
+
 pub fn copy_text(text: &str) -> io::Result<()> {
     let text = wide(text);
     // SAFETY: clipboard allocation remains ours until successful SetClipboardData,
@@ -738,14 +846,14 @@ fn tooltip(value: &str) -> [u16; 128] {
     result
 }
 
-fn processes() -> sysinfo::System {
-    let mut system = sysinfo::System::new();
+fn processes() -> io::Result<sysinfo::System> {
+    let mut system = sysinfo::System::new().map_err(io::Error::other)?;
     system.refresh_processes_specifics(
         sysinfo::ProcessesToUpdate::All,
         true,
         sysinfo::ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::OnlyIfNotSet),
     );
-    system
+    Ok(system)
 }
 fn matches_path(path: &Path, expected: &Path) -> bool {
     std::fs::canonicalize(path)
@@ -753,9 +861,9 @@ fn matches_path(path: &Path, expected: &Path) -> bool {
         .zip(std::fs::canonicalize(expected).ok())
         .is_some_and(|(a, b)| a == b)
 }
-pub fn running_products(paths: &[std::path::PathBuf]) -> Vec<std::path::PathBuf> {
-    let system = processes();
-    paths
+pub fn running_products(paths: &[std::path::PathBuf]) -> io::Result<Vec<std::path::PathBuf>> {
+    let system = processes()?;
+    Ok(paths
         .iter()
         .filter(|path| {
             system
@@ -764,10 +872,10 @@ pub fn running_products(paths: &[std::path::PathBuf]) -> Vec<std::path::PathBuf>
                 .any(|process| process.exe().is_some_and(|exe| matches_path(exe, path)))
         })
         .cloned()
-        .collect()
+        .collect())
 }
 pub fn stop_products(paths: &[std::path::PathBuf]) -> io::Result<bool> {
-    let mut system = processes();
+    let mut system = processes()?;
     let targets: Vec<_> = system
         .processes()
         .iter()

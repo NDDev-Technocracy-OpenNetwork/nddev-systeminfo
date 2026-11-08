@@ -33,6 +33,14 @@ struct State {
 }
 type Shared = Arc<(Mutex<State>, Condvar)>;
 
+pub fn native_analysis_model(
+    config: &Config,
+    view: &crate::analysis::View,
+    selected: Option<&str>,
+) -> tray::dashboard::Model {
+    crate::windows_analysis::native_model(config, view, selected)
+}
+
 /// A native frontend and its acceptance harness consume the same presentation
 /// model. This function owns no collector, window, timer or background process.
 pub fn native_model(config: &Config, sample: Option<&WireSnapshot>) -> Model {
@@ -71,11 +79,18 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
     state.refresh_icon();
     let Some(tray) = Tray::new("org.nddev.systeminfo.tray", state.model())? else {
+        if std::env::args().any(|arg| arg == "--show") {
+            Tray::activate_existing("org.nddev.systeminfo.tray");
+        }
         return Ok(());
     };
     state.side = ((tray.dpi() * 16 / 96).div_ceil(16) * 16).clamp(16, 128);
     state.refresh_icon();
     let proxy = tray.proxy();
+    if std::env::args().any(|arg| arg == "--show") {
+        proxy.open_dashboard();
+    }
+    let mut analysis = crate::windows_analysis::AnalysisUI::new(proxy.clone());
     proxy.update(state.model());
     let shared = Arc::new((Mutex::new(state), Condvar::new()));
     let worker_state = shared.clone();
@@ -90,6 +105,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let result = tray.run(|event, proxy| {
         let mut state = shared.0.lock().unwrap();
+        if let Event::Command(id) = &event && analysis.command(*id, &state.config) { return; }
         match event {
             Event::Command(QUIT) => { proxy.close(); }
             Event::Command(COPY) => {
@@ -134,8 +150,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Err(_) => state.notice = Some("error"),
             },
-            Event::AppearanceChanged => { state.refresh_icon(); }
+            Event::AppearanceChanged => { state.refresh_icon(); analysis.appearance_changed(); }
         }
+        analysis.configure(&state.config);
         proxy.update(state.model());
     });
     {
@@ -151,6 +168,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .join()
         .map_err(|_| io::Error::other("native reader failed"))?;
     result?;
+    drop(analysis);
     Ok(())
 }
 fn restart(state: &mut State, wake: &Condvar) {
@@ -193,7 +211,7 @@ fn collect(shared: Shared, proxy: Proxy) {
         let connect = transport::socket_path()
             .map_err(crate::client::ClientError::from)
             .and_then(|path| {
-                Client::connect(
+                Client::connect_recording(
                     &path,
                     config.sampling.interval_seconds,
                     Duration::from_millis(config.transport.client_timeout_ms),

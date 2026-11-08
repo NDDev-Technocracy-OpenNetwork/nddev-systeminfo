@@ -11,6 +11,7 @@ func runNativeAcceptance(_ app: AppDelegate) async throws {
     try await until { app.acceptanceHasSample }
     precondition(app.acceptanceMenu.items.count >= 19)
     let cli = app.acceptanceCLI
+    var resources: [String: [String: Int]] = ["status_bar": processResources()]
 
     func select(_ key: String, _ value: String) async throws {
         func find(_ menu: NSMenu) -> (NSMenu, Int)? {
@@ -41,7 +42,29 @@ func runNativeAcceptance(_ app: AppDelegate) async throws {
         try await until { app.acceptanceHasSample }
         precondition(app.acceptanceMenu.userInterfaceLayoutDirection == (code == "ar" ? .rightToLeft : .leftToRight))
         try captureMenu(app.acceptanceMenu, folder.appendingPathComponent("\(code)-\(theme).png"))
+        app.acceptanceOpenAnalysis()
+        try await until { app.acceptanceAnalysis?.acceptanceLive == true && app.acceptanceAnalysis?.acceptanceView?.metric == "cpu.usage"
+            && app.acceptanceAnalysis?.acceptanceView?.statistics.current != nil }
+        guard let analysis = app.acceptanceAnalysis, let window = analysis.window else { throw TestFailure.missingSetting }
+        window.displayIfNeeded()
+        if code == "en" { resources["window_open"] = processResources() }
+        try captureWindow(window, folder.appendingPathComponent("analysis-\(code)-\(theme).png"))
     }
+    guard let analysis = app.acceptanceAnalysis,
+          let core = analysis.acceptanceView?.latest?.detail.cores.first else { throw TestFailure.missingSetting }
+    analysis.acceptanceSelect("core:\(core.id)")
+    try await until { analysis.acceptanceView?.metric == "core:\(core.id)" }
+    analysis.acceptancePause()
+    precondition(analysis.acceptancePaused && !analysis.acceptanceHasReader)
+    let pausedSequence = analysis.acceptanceView?.latest?.detail.sequence
+    try await Task.sleep(nanoseconds: 600_000_000)
+    precondition(analysis.acceptanceView?.latest?.detail.sequence == pausedSequence)
+    resources["paused"] = processResources()
+    analysis.acceptancePause()
+    try await until { !analysis.acceptancePaused && analysis.acceptanceHasReader }
+    try captureWindow(analysis.window!, folder.appendingPathComponent("logical-core.png"))
+    analysis.close()
+    precondition(app.acceptanceAnalysis == nil)
     try await select("sampling.interval_seconds", "0")
     try await until { app.acceptanceHasSample }
     guard let copyIndex = app.acceptanceMenu.items.firstIndex(where: { $0.action == NSSelectorFromString("copyReport") }) else { throw TestFailure.missingSetting }
@@ -55,13 +78,39 @@ func runNativeAcceptance(_ app: AppDelegate) async throws {
     let rows = app.acceptanceMenu.items.filter { $0.title.contains("\u{2068}—\u{2069}") }
     precondition(rows.count == 12)
     try captureMenu(app.acceptanceMenu, folder.appendingPathComponent("offline.png"))
-    try Data("{\"native_menu\":true,\"locales\":5,\"themes\":4,\"settings\":true,\"clipboard\":true,\"offline_cleared\":12}\n".utf8)
-        .write(to: folder.appendingPathComponent("result.json"), options: .atomic)
+    let result: [String: Any] = ["native_menu":true,"analysis_window":true,"logical_core":true,"pause_resume_close":true,"locales":5,"themes":4,"settings":true,"clipboard":true,"offline_cleared":12,"resources":resources]
+    try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]).write(to: folder.appendingPathComponent("result.json"), options: .atomic)
     print("PASS: real AppKit menu, five locales, four themes, settings, clipboard and provider disconnect")
     NSApplication.shared.terminate(nil)
 }
 
 private enum TestFailure: Error { case timeout, missingSetting, screenshot }
+@MainActor
+private func processResources() -> [String: Int] {
+    func output(_ executable: String, _ arguments: [String]) -> String {
+        let process = Process(); process.executableURL = URL(fileURLWithPath: executable); process.arguments = arguments
+        let pipe = Pipe(); process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return "" }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit()
+        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    // RSS is recorded separately from Linux PSS/Windows private bytes. Only
+    // this application and its owned Systeminfo helpers are inspected.
+    let own = Int(output("/bin/ps", ["-o", "rss=", "-p", String(getpid())])) ?? 0
+    precondition(own > 0, "native UI RSS must be observable")
+    let children = output("/usr/bin/pgrep", ["-P", String(getpid()), "-f", "nddev-systeminfo"]).split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
+    let childRSS = children.reduce(0) { $0 + (Int(output("/bin/ps", ["-o", "rss=", "-p", String($1)])) ?? 0) }
+    return ["ui_rss_kib":own,"child_rss_kib":childRSS,"children":children.count]
+}
+@MainActor
+private func captureWindow(_ window: NSWindow, _ path: URL) throws {
+    window.displayIfNeeded()
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+    process.arguments = ["-x", "-l", String(window.windowNumber), path.path]
+    try process.run(); process.waitUntilExit()
+    guard process.terminationStatus == 0 && NSImage(contentsOf: path) != nil else { throw TestFailure.screenshot }
+}
 @MainActor
 private func until(_ predicate: () -> Bool) async throws {
     let deadline = ProcessInfo.processInfo.systemUptime + 15

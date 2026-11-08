@@ -508,7 +508,16 @@ fn ui_resource() -> Result<String> {
             return Err(format!("incomplete locale: {code}").into());
         }
         for (key, value) in &catalog {
-            if value.contains("{seconds}") != english[key].contains("{seconds}") {
+            fn placeholders(value: &str) -> std::collections::BTreeSet<&str> {
+                value
+                    .match_indices('{')
+                    .filter_map(|(start, _)| {
+                        let suffix = &value[start + 1..];
+                        suffix.find('}').map(|end| &suffix[..end])
+                    })
+                    .collect()
+            }
+            if placeholders(value) != placeholders(&english[key]) {
                 return Err(format!("locale placeholder mismatch: {code}/{key}").into());
             }
         }
@@ -541,13 +550,90 @@ fn ui_resource() -> Result<String> {
     ] {
         let body = TextStyle::resolve(TypeRole::Body, Platform::Desktop, script);
         let label = TextStyle::resolve(TypeRole::Label, Platform::Desktop, script);
+        let card = TextStyle::resolve(TypeRole::H3, Platform::Desktop, script);
         typography.insert(
             code.into(),
-            json!({"body":body.size,"label":label.size,"line_height":body.line_height}),
+            json!({"body":body.size,"label":label.size,"card":card.size,"line_height":body.line_height}),
         );
     }
     let defaults: toml::Value = toml::from_str(&fs::read_to_string("config/default.toml")?)?;
-    let data = json!({"version":version()?,"source":source,"defaults":defaults,"catalogs":catalogs,"themes":themes,"metrics":metrics,"typography":typography,"brand":{"view_box":[BRAND_MARK.min_x,BRAND_MARK.min_y,BRAND_MARK.width,BRAND_MARK.height],"paths":BRAND_MARK.shapes.iter().map(|shape| Value::String(shape.d.into())).collect::<Vec<_>>()}});
+    let product: Value = serde_json::from_str(&fs::read_to_string("product.json")?)?;
+    let website = product["website"].as_str().ok_or("website missing")?;
+    let application_id = product["application_id"]
+        .as_str()
+        .ok_or("application identity missing")?;
+    if !application_id.contains('.')
+        || application_id.len() > 128
+        || !application_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'_')
+    {
+        return Err("invalid native application identity".into());
+    }
+    if !website.starts_with("https://") || website.chars().any(char::is_whitespace) {
+        return Err("website must be an HTTPS URL".into());
+    }
+    let mut analysis = product["analysis"]
+        .as_object()
+        .ok_or("analysis layout missing")?
+        .clone();
+    let ranges = analysis["ranges_seconds"]
+        .as_array()
+        .ok_or("analysis ranges missing")?;
+    if ranges.is_empty()
+        || ranges.iter().any(|v| {
+            v.as_u64().is_none_or(|v| {
+                v == 0 || v > nddev_systeminfo::protocol::analysis::HISTORY_SECONDS as u64
+            })
+        })
+        || analysis["cores_per_page"]
+            .as_u64()
+            .is_none_or(|v| !(1..=64).contains(&v))
+    {
+        return Err("invalid analysis layout limits".into());
+    }
+    analysis.insert(
+        "frame_bytes".into(),
+        json!(nddev_systeminfo::protocol::analysis::MAX_VIEW_FRAME_BYTES),
+    );
+    analysis.insert(
+        "view_version".into(),
+        json!(nddev_systeminfo::protocol::analysis::VIEW_VERSION),
+    );
+    analysis.insert(
+        "plot_columns".into(),
+        json!(nddev_systeminfo::protocol::analysis::PLOT_COLUMNS),
+    );
+    analysis.insert(
+        "history_seconds".into(),
+        json!(nddev_systeminfo::protocol::analysis::HISTORY_SECONDS),
+    );
+    let series = nddev_systeminfo::protocol::METRICS;
+    let gpu_series: Vec<Value> = product["gpu_series"]
+        .as_array()
+        .ok_or("GPU series missing")?
+        .iter()
+        .map(|field| {
+            let field = field.as_str().ok_or("GPU field missing")?;
+            let selection =
+                nddev_systeminfo::analysis::Selection::parse(&format!("gpu:adapter:{field}"))
+                    .ok_or("unknown GPU series")?;
+            Ok(json!({"key":field,"label":selection.label,"unit":selection.unit}))
+        })
+        .collect::<Result<_>>()?;
+    let cells = product["cells"]
+        .as_array()
+        .ok_or("dashboard cells missing")?;
+    for cell in cells {
+        if !english.contains_key(cell["label"].as_str().ok_or("cell label missing")?)
+            || !series
+                .iter()
+                .any(|m| Some(m.key) == cell["metric"].as_str())
+        {
+            return Err("unknown dashboard cell".into());
+        }
+    }
+    let data = json!({"version":version()?,"website":website,"application_id":application_id,"analysis":analysis,"cells":cells,"series":series,"gpu_series":gpu_series,"source":source,"defaults":defaults,"catalogs":catalogs,"themes":themes,"metrics":metrics,"typography":typography,"brand":{"view_box":[BRAND_MARK.min_x,BRAND_MARK.min_y,BRAND_MARK.width,BRAND_MARK.height],"paths":BRAND_MARK.shapes.iter().map(|shape| Value::String(shape.d.into())).collect::<Vec<_>>()}});
     Ok(serde_json::to_string_pretty(&data)? + "\n")
 }
 fn check() -> Result {
@@ -619,7 +705,9 @@ fn check() -> Result {
         }
         command("node", &["--check", path.to_str().unwrap()])?;
         let text = fs::read_to_string(&path)?;
-        let preferences = path.file_name().is_some_and(|name| name == "prefs.js");
+        let preferences = path
+            .file_name()
+            .is_some_and(|name| name == "prefs.js" || name == "analysis-window.js");
         let test = path.components().any(|part| part.as_os_str() == "tests");
         let forbidden = if preferences {
             vec!["gi://St", "gi://Clutter", "gi://Meta", "gi://Shell"]
@@ -778,6 +866,11 @@ fn run() -> Result {
             }
         }
         Some("measure") => resources::measure(),
+        Some("measure-baseline") => resources::baseline(Path::new(
+            &std::env::args()
+                .nth(2)
+                .ok_or("baseline measurement needs the original binary path")?,
+        )),
         Some("measure-legacy") => resources::legacy(Path::new(
             &std::env::args()
                 .nth(2)

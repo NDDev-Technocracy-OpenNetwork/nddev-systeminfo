@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nddev.ai/opennetwork/systeminfo/analysis-v1.schema.json",
+  "title": "Opt-in native Systeminfo analysis",
+  "description": "The ordinary v1 sample is unchanged. A details handshake adds this required detail member. History replays the same frames, followed by a history_end marker, then live frames.",
+  "allOf": [
+    {
+      "$ref": "snapshot-v1.schema.json"
+    }
+  ],
+  "type": "object",
+  "required": [
+    "detail"
+  ],
+  "properties": {
+    "detail": {
+      "$ref": "#/$defs/Details"
+    }
+  },
+  "x-max-frame-bytes": 262144,
+  "x-max-cores": 4096,
+  "x-max-gpus": 64,
+  "$defs": {
+    "Core": {
+      "type": "object",
+      "required": [
+        "id",
+        "usage"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295,
+          "x-rust-type": "u32"
+        },
+        "usage": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100,
+          "x-rust-type": "f32"
+        }
+      }
+    },
+    "Gpu": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "status",
+        "usage",
+        "temperature",
+        "dedicated_used",
+        "dedicated_total",
+        "shared_used"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "available",
+            "sleeping",
+            "unavailable"
+          ]
+        },
+        "usage": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "temperature": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "dedicated_used": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "x-rust-type": "u64"
+        },
+        "dedicated_total": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "x-rust-type": "u64"
+        },
+        "shared_used": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "x-rust-type": "u64"
+        }
+      }
+    },
+    "Details": {
+      "type": "object",
+      "required": [
+        "at_ms",
+        "elapsed_ms",
+        "sequence",
+        "gpu_enabled",
+        "cores",
+        "gpus",
+        "period_ms"
+      ],
+      "properties": {
+        "at_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "x-rust-type": "u64"
+        },
+        "elapsed_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "x-rust-type": "u64"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "x-rust-type": "u64"
+        },
+        "gpu_enabled": {
+          "type": "boolean"
+        },
+        "cores": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "$ref": "#/$defs/Core"
+          }
+        },
+        "gpus": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/Gpu"
+          }
+        },
+        "period_ms": {
+          "type": "integer",
+          "minimum": 500,
+          "maximum": 60000,
+          "x-rust-type": "u64"
+        }
+      }
+    }
+  },
+  "x-history": {
+    "retention-seconds": 3600,
+    "max-records": 7201,
+    "max-bytes": 8388608
+  }
+}

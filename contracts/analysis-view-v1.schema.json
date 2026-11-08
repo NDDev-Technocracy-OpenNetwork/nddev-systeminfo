@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nddev.ai/opennetwork/systeminfo/analysis-view-v1.schema.json",
+  "title": "Versioned native Systeminfo analysis view",
+  "description": "One bounded, peak-preserving plot and actual coverage/statistics. The ordinary snapshot protocol is independent.",
+  "x-max-frame-bytes": 1048576,
+  "x-default-columns": 512,
+  "$ref": "#/$defs/View",
+  "$defs": {
+    "Point": {
+      "type": "object",
+      "required": [
+        "x_ms",
+        "low",
+        "high",
+        "value",
+        "gap"
+      ],
+      "properties": {
+        "x_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "low": {
+          "type": "number"
+        },
+        "high": {
+          "type": "number"
+        },
+        "value": {
+          "type": "number"
+        },
+        "gap": {
+          "type": "boolean"
+        }
+      }
+    },
+    "Statistics": {
+      "type": "object",
+      "required": [
+        "current",
+        "minimum",
+        "maximum",
+        "average",
+        "samples",
+        "covered_ms"
+      ],
+      "properties": {
+        "current": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "minimum": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "maximum": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "average": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "samples": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7201,
+          "x-rust-type": "usize"
+        },
+        "covered_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600000
+        }
+      },
+      "x-rust-default": true
+    },
+    "View": {
+      "type": "object",
+      "required": [
+        "v",
+        "latest",
+        "metric",
+        "label",
+        "unit",
+        "start_ms",
+        "end_ms",
+        "available_ms",
+        "range_seconds",
+        "y_min",
+        "y_max",
+        "points",
+        "statistics"
+      ],
+      "properties": {
+        "v": {
+          "type": "integer",
+          "const": 1,
+          "x-rust-type": "u32"
+        },
+        "latest": {
+          "anyOf": [
+            {
+              "$ref": "analysis-v1.schema.json"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-rust-type": "Frame"
+        },
+        "metric": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "unit": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "start_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "available_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600000
+        },
+        "range_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "y_min": {
+          "type": "number"
+        },
+        "y_max": {
+          "type": "number"
+        },
+        "points": {
+          "type": "array",
+          "maxItems": 2048,
+          "items": {
+            "$ref": "#/$defs/Point"
+          }
+        },
+        "statistics": {
+          "$ref": "#/$defs/Statistics"
+        }
+      }
+    }
+  }
+}

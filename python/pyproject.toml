@@ -1,6 +1,6 @@
 [build-system]
 build-backend = "hatchling.build"
-requires = ["hatchling==1.32.4"]
+requires = ["hatchling==1.33.0"]
 
 [project]
 classifiers = [
@@ -18,7 +18,7 @@ license-files = [
 name = "rldyour-sysinfo"
 readme = "README.md"
 requires-python = ">=3.9"
-version = "0.3.4"
+version = "0.3.5"
 
 [[project.authors]]
 name = "NDDev OpenNetwork"

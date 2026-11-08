@@ -12,24 +12,26 @@ const CPU_LABELS: &[&str] = &["cpu", "package", "core", "tctl", "tdie"];
 const DISK_LABELS: &[&str] = &["nvme", "ssd", "hdd", "drive", "storage"];
 
 pub(super) struct Temperatures {
-    components: Components,
+    components: Option<Components>,
 }
 
 impl Temperatures {
     pub(super) fn new() -> Self {
         Self {
-            components: Components::new_with_refreshed_list(),
+            components: Components::new_with_refreshed_list().ok(),
         }
     }
 
     pub(super) fn refresh(&mut self) {
-        self.components.refresh(true);
+        if let Some(components) = &mut self.components {
+            components.refresh(true);
+        }
     }
 
-    /// Hottest CPU-labelled sensor, or the hottest sensor at all when no
-    /// label identifies one — a generic reading is still the right fallback.
+    /// Only CPU-labelled sensors identify a processor temperature. An unrelated
+    /// component must not be substituted when the OS exposes no CPU sensor.
     pub(super) fn cpu(&self) -> Option<f32> {
-        self.hottest(CPU_LABELS).or_else(|| self.hottest(&[]))
+        self.hottest(CPU_LABELS)
     }
 
     /// Hottest storage-labelled sensor. There is no fallback: an unrelated
@@ -40,6 +42,7 @@ impl Temperatures {
 
     fn hottest(&self, labels: &[&str]) -> Option<f32> {
         self.components
+            .as_ref()?
             .iter()
             .filter(|component| {
                 labels.is_empty()

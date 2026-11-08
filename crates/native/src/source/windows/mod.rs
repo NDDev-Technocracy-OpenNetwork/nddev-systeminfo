@@ -3,15 +3,16 @@
 
 mod cpu;
 mod disk;
+mod gpu;
 mod mem;
 mod net;
 mod temp;
 
 use crate::proto::Snapshot;
 use crate::source::MetricsSource;
-use crate::source::nvidia::Gpu;
 use cpu::Cpu;
 use disk::Disk;
+use gpu::Gpu;
 use mem::Memory;
 use net::Network;
 use std::io;
@@ -27,12 +28,18 @@ pub(crate) struct WindowsCollector {
 }
 
 impl MetricsSource for WindowsCollector {
+    fn cores(&self) -> &[crate::proto::analysis::Core] {
+        self.cpu.cores()
+    }
+    fn gpus(&self) -> &[crate::proto::analysis::Gpu] {
+        self.gpu.devices()
+    }
     fn new(gpu: bool) -> io::Result<Self> {
         Ok(Self {
-            cpu: Cpu::new(),
-            memory: Memory::new(),
-            disk: Disk::new(),
-            network: Network::new(),
+            cpu: Cpu::new()?,
+            memory: Memory::new()?,
+            disk: Disk::new()?,
+            network: Network::new()?,
             gpu: Gpu::new(gpu),
             temperatures: Temperatures::new(),
         })

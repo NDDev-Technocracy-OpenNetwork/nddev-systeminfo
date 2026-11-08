@@ -45,6 +45,7 @@ impl Provider {
         let configuration = directory.join("config.toml");
         let mut config = Config::parse(DEFAULT_TOML).unwrap();
         config.sampling.interval_seconds = 0;
+        config.sampling.gpu = false;
         config.sampling.idle_release_seconds = 1;
         config.transport.max_clients = clients;
         config.transport.handshake_timeout_ms = 50;
@@ -107,6 +108,130 @@ impl Provider {
             }
         }
     }
+}
+
+#[test]
+fn legacy_clients_do_not_silently_enable_history_retention() {
+    let provider = Provider::with_clients(3);
+    let mut ordinary = provider.client();
+    for _ in 0..4 {
+        ordinary.next_sample().unwrap();
+    }
+    let mut reader =
+        Client::connect_analysis(&provider.socket, 0, Duration::from_secs(5), true).unwrap();
+    let mut replayed = 0;
+    while reader.next_analysis().unwrap().is_some() {
+        replayed += 1;
+    }
+    assert_eq!(
+        replayed, 1,
+        "ordinary v1 clients retain only the latest sample"
+    );
+}
+
+#[test]
+fn real_history_replays_once_then_continues_live_with_all_logical_cores() {
+    let provider = Provider::with_clients(3);
+    let before = fs::read_dir(&provider.directory)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut ordinary =
+        Client::connect_recording(&provider.socket, 0, Duration::from_secs(5)).unwrap();
+    for _ in 0..3 {
+        ordinary.next_sample().unwrap();
+    }
+    let mut analysis =
+        Client::connect_analysis(&provider.socket, 0, Duration::from_secs(5), true).unwrap();
+    let mut last = 0;
+    let mut count = 0;
+    while let Some(frame) = analysis.next_analysis().unwrap() {
+        assert!(frame.detail.sequence > last);
+        last = frame.detail.sequence;
+        count += 1;
+        assert!(!frame.detail.cores.is_empty());
+        assert!(!frame.detail.gpu_enabled);
+        assert!(
+            frame
+                .detail
+                .cores
+                .iter()
+                .all(|core| core.usage.is_none_or(|v| (0.0..=100.0).contains(&v)))
+        );
+    }
+    assert!(count >= 3);
+    let live = analysis.next_analysis().unwrap().unwrap();
+    assert!(live.detail.sequence > last);
+    ordinary.next_sample().unwrap().validate().unwrap();
+    let after = fs::read_dir(&provider.directory)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(before, after, "sampling must create no history files");
+}
+
+#[test]
+fn cli_analysis_returns_a_bounded_view_of_the_real_provider() {
+    let provider = Provider::with_clients(3);
+    let mut client =
+        Client::connect_recording(&provider.socket, 0, Duration::from_secs(5)).unwrap();
+    for _ in 0..3 {
+        client.next_sample().unwrap();
+    }
+    let out = provider.directory.join("analysis.json");
+    let log = provider.directory.join("analysis.log");
+    let mut child = Command::new(std::env::var_os("CARGO_BIN_EXE_nddev-systeminfo").unwrap())
+        .args([
+            "analyze",
+            "--once",
+            "--socket",
+            provider.socket.to_str().unwrap(),
+            "--interval",
+            "0",
+            "--columns",
+            "1",
+            "--metric",
+            "cpu.usage",
+        ])
+        .stdout(fs::File::create(&out).unwrap())
+        .stderr(fs::File::create(log).unwrap())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("analysis command exceeded its deadline");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(status.success());
+    let data = fs::read(out).unwrap();
+    let decoded = nddev_systeminfo::protocol::analysis::decode_view(&data).unwrap();
+    assert_eq!(
+        decoded.v,
+        nddev_systeminfo::protocol::analysis::VIEW_VERSION
+    );
+    let mut value: serde_json::Value = serde_json::from_slice(&data).unwrap();
+    assert_eq!(value["metric"], "cpu.usage");
+    assert_eq!(value["unit"], "percent");
+    assert_eq!(value["points"].as_array().unwrap().len(), 1);
+    assert!(value["statistics"]["samples"].as_u64().unwrap() >= 2);
+    assert!(
+        !value["latest"]["detail"]["cores"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    value["v"] = 2.into();
+    assert!(
+        nddev_systeminfo::protocol::analysis::decode_view(&serde_json::to_vec(&value).unwrap())
+            .is_err()
+    );
 }
 impl Drop for Provider {
     fn drop(&mut self) {

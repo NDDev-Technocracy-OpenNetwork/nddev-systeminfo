@@ -24,6 +24,9 @@ fn main() {
     let mut validation = String::from(
         "impl WireSnapshot {\n    pub fn validate(&self) -> Result<(), ProtocolError> {\n        if self.v != PROTOCOL_VERSION { return Err(ProtocolError::UnsupportedVersion); }\n",
     );
+    let mut descriptors = String::from("pub const METRICS: &[Metric] = &[\n");
+    let mut lookup =
+        String::from("pub fn metric_value(s:&WireSnapshot,key:&str)->Option<f64>{match key {\n");
     for group in groups {
         let name = group.as_str().unwrap();
         let definition = &schema["properties"][name];
@@ -53,6 +56,22 @@ fn main() {
             let integer = leaf["type"][0] == "integer";
             let flat_type = if integer { "u64" } else { "f32" };
             let wire_type = if integer { "u64" } else { "f64" };
+            let label = leaf["x-label"].as_str().unwrap_or(field);
+            let unit = leaf["x-unit"].as_str().unwrap();
+            writeln!(
+                descriptors,
+                "Metric{{key:{:?},label:{label:?},unit:{unit:?}}},",
+                format!("{name}.{key}")
+            )
+            .unwrap();
+            writeln!(
+                lookup,
+                "{:?} => s.{name}.{key}{},",
+                format!("{name}.{key}"),
+                if integer { ".map(|v|v as f64)" } else { "" }
+            )
+            .unwrap();
+
             writeln!(flat, "    pub {field}: Option<{flat_type}>,").unwrap();
             writeln!(types, "    #[serde(deserialize_with = \"Option::deserialize\")]\n    pub {key}: Option<{wire_type}>,").unwrap();
             let prefix = format!("{}\"{key}\":", if index == 0 { "" } else { "," });
@@ -84,6 +103,126 @@ fn main() {
     wire.push_str("}\n");
     encode.push_str("        out.push_str(\"}\\n\");\n    }\n}\n");
     validation.push_str("        Ok(())\n    }\n}\n");
+    descriptors.push_str("];\n");
+    lookup.push_str("_=>None}}\n");
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("snapshot.rs");
-    fs::write(output, flat + &wire + &types + &encode + &validation).unwrap();
+    fs::write(
+        output,
+        flat + &wire + &types + &encode + &validation + &descriptors + &lookup,
+    )
+    .unwrap();
+    analysis();
+}
+
+fn analysis() {
+    let path = "../../contracts/analysis-v1.schema.json";
+    println!("cargo:rerun-if-changed={path}");
+    let schema: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    let mut output = String::new();
+    for (name, key) in [
+        ("MAX_ANALYSIS_FRAME_BYTES", "x-max-frame-bytes"),
+        ("MAX_CORES", "x-max-cores"),
+        ("MAX_GPUS", "x-max-gpus"),
+    ] {
+        writeln!(output, "pub const {name}: usize = {};", schema[key]).unwrap();
+    }
+    for (name, key) in [
+        ("HISTORY_SECONDS", "retention-seconds"),
+        ("HISTORY_RECORDS", "max-records"),
+        ("HISTORY_BYTES", "max-bytes"),
+    ] {
+        writeln!(
+            output,
+            "pub const {name}: usize = {};",
+            schema["x-history"][key]
+        )
+        .unwrap();
+    }
+    analysis_structs(&schema, &mut output, true);
+    let path = "../../contracts/analysis-view-v1.schema.json";
+    println!("cargo:rerun-if-changed={path}");
+    let view: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    writeln!(
+        output,
+        "pub const VIEW_VERSION: u32 = {};",
+        view["$defs"]["View"]["properties"]["v"]["const"]
+    )
+    .unwrap();
+    for (name, value) in [
+        ("MAX_VIEW_FRAME_BYTES", &view["x-max-frame-bytes"]),
+        ("PLOT_COLUMNS", &view["x-default-columns"]),
+        (
+            "MAX_PLOT_COLUMNS",
+            &view["$defs"]["View"]["properties"]["points"]["maxItems"],
+        ),
+    ] {
+        writeln!(output, "pub const {name}: usize = {value};").unwrap();
+    }
+    analysis_structs(&view, &mut output, false);
+    fs::write(
+        PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("analysis.rs"),
+        output,
+    )
+    .unwrap();
+}
+fn analysis_structs(schema: &Value, output: &mut String, debug: bool) {
+    for (name, definition) in schema["$defs"].as_object().unwrap() {
+        if definition["x-rust-default"] == true {
+            output.push_str("#[derive(Default)]\n");
+        }
+        writeln!(
+            output,
+            "#[derive(Clone, {}serde::Deserialize, serde::Serialize)]\npub struct {name} {{",
+            if debug { "Debug, " } else { "" }
+        )
+        .unwrap();
+        for (field, value) in definition["properties"].as_object().unwrap() {
+            let (kind, nullable) = analysis_type(value);
+            if nullable && kind == "f32" {
+                output.push_str("    #[serde(deserialize_with = \"percent32\")]\n");
+            } else if nullable {
+                output.push_str("    #[serde(deserialize_with = \"Option::deserialize\")]\n");
+            }
+            writeln!(
+                output,
+                "    pub {field}: {},",
+                if nullable {
+                    format!("Option<{kind}>")
+                } else {
+                    kind
+                }
+            )
+            .unwrap();
+        }
+        output.push_str("}\n");
+    }
+}
+fn analysis_type(value: &Value) -> (String, bool) {
+    if value["anyOf"].is_array() {
+        return (
+            value["x-rust-type"]
+                .as_str()
+                .expect("nullable reference Rust type")
+                .into(),
+            true,
+        );
+    }
+    if let Some(reference) = value["$ref"].as_str() {
+        return (reference.rsplit('/').next().unwrap().into(), false);
+    }
+    let nullable = value["type"].is_array();
+    let kind = if nullable {
+        value["type"][0].as_str().unwrap()
+    } else {
+        value["type"].as_str().unwrap()
+    };
+    let result = match kind {
+        "integer" => value["x-rust-type"].as_str().unwrap_or("u64").into(),
+        "number" => value["x-rust-type"].as_str().unwrap_or("f64").into(),
+        "string" => "String".into(),
+        "boolean" => "bool".into(),
+        "array" => format!("Vec<{}>", analysis_type(&value["items"]).0),
+        _ => panic!("unsupported analysis schema type"),
+    };
+    (result, nullable)
 }

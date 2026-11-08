@@ -32,6 +32,12 @@ pub(crate) struct MacosCollector {
 }
 
 impl MetricsSource for MacosCollector {
+    fn cores(&self) -> &[crate::proto::analysis::Core] {
+        self.cpu.cores()
+    }
+    fn gpus(&self) -> &[crate::proto::analysis::Gpu] {
+        self.gpu.as_ref().map_or(&[], |gpu| gpu.devices())
+    }
     fn new(gpu: bool) -> io::Result<Self> {
         Ok(Self {
             cpu: Cpu::new(),
@@ -62,6 +68,7 @@ impl MetricsSource for MacosCollector {
         }
         let reading = self.gpu.as_mut().map(Gpu::read);
         snapshot.gpu = reading.as_ref().and_then(|reading| reading.usage);
+        snapshot.gpu_memory = reading.as_ref().and_then(|reading| reading.memory);
         snapshot.cpu_temperature = self.temperatures.cpu();
         // SMC keys first, then the accelerator's own report, then the HID
         // sensor Apple silicon exposes — each a fallback for the one before.
@@ -73,6 +80,9 @@ impl MetricsSource for MacosCollector {
                 .or_else(|| self.temperatures.gpu_hid());
         }
         snapshot.disk_temperature = self.temperatures.disk();
+        if let Some(gpu) = &mut self.gpu {
+            gpu.apple_temperature(snapshot.gpu_temperature);
+        }
         snapshot
     }
 }

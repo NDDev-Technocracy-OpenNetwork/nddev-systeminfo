@@ -30,7 +30,7 @@ export class Client {
             // connect timeout must not become a shorter per-read timeout.
             connection.get_socket().set_timeout(0);
             this._connection = connection; this._stream = connection.get_input_stream();
-            const bytes = new TextEncoder().encode(`{"interval":${this._interval}}\n`);
+            const bytes = new TextEncoder().encode(`{"interval":${this._interval},"record":true}\n`);
             connection.get_output_stream().write_all_async(bytes, GLib.PRIORITY_DEFAULT, this._cancellable, (output, written) => {
                 try { output.write_all_finish(written); }
                 catch { if (this._current(generation)) this._retry(generation); }

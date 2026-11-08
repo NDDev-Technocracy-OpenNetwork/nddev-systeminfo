@@ -3,15 +3,16 @@
 mod cpu;
 mod devices;
 mod disk;
+mod gpu;
 mod mem;
 mod net;
 mod temp;
 
 use crate::proto::Snapshot;
 use crate::source::MetricsSource;
-use crate::source::nvidia::Gpu;
 use cpu::Cpu;
 use disk::Disk;
+use gpu::Gpu;
 use mem::Memory;
 use net::Network;
 use std::fs::File;
@@ -30,6 +31,12 @@ pub(crate) struct LinuxCollector {
 }
 
 impl MetricsSource for LinuxCollector {
+    fn cores(&self) -> &[crate::proto::analysis::Core] {
+        self.cpu.cores()
+    }
+    fn gpus(&self) -> &[crate::proto::analysis::Gpu] {
+        self.gpu.devices()
+    }
     fn new(gpu: bool) -> io::Result<Self> {
         Ok(Self {
             cpu: Cpu::new()?,
@@ -83,9 +90,15 @@ struct VirtualFile {
 
 impl VirtualFile {
     fn open(path: impl AsRef<Path>) -> io::Result<Self> {
+        Self::with_capacity(path, 4096)
+    }
+    fn scalar(path: impl AsRef<Path>) -> io::Result<Self> {
+        Self::with_capacity(path, 64)
+    }
+    fn with_capacity(path: impl AsRef<Path>, capacity: usize) -> io::Result<Self> {
         Ok(Self {
             file: File::open(path)?,
-            buf: String::with_capacity(4096),
+            buf: String::with_capacity(capacity),
         })
     }
 
@@ -93,13 +106,6 @@ impl VirtualFile {
         self.file.seek(SeekFrom::Start(0))?;
         self.buf.clear();
         self.file.read_to_string(&mut self.buf)?;
-        Ok(&self.buf)
-    }
-
-    fn read_prefix(&mut self, limit: u64) -> io::Result<&str> {
-        self.file.seek(SeekFrom::Start(0))?;
-        self.buf.clear();
-        (&mut self.file).take(limit).read_to_string(&mut self.buf)?;
         Ok(&self.buf)
     }
 }
