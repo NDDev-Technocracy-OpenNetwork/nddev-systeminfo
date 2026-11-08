@@ -24,3 +24,7 @@ remain unchanged. Earlier resource and hour-long retention records retain their
 exact source identities; they are not relabeled as measurements of 0.3.9.
 The complete native install/configuration/UI/package matrix and immutable
 delivery must pass again before selecting this patch for native installations.
+
+Native Apple CI now records the actual Swift compiler identity before both
+package and presentation qualification. A runner image label is not used as
+a substitute for the compiler that produced the native application.
