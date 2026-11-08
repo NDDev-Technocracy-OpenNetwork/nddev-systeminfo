@@ -341,6 +341,15 @@ fn swift_contract() -> Result<String> {
         let fields = schema["properties"][name]["x-fields"]
             .as_array()
             .ok_or("schema fields missing")?;
+        writeln!(
+            result,
+            "        enum CodingKeys: String, CodingKey {{ case {} }}",
+            fields
+                .iter()
+                .map(|key| key.as_str().ok_or("invalid field"))
+                .collect::<std::result::Result<Vec<_>, _>>()?
+                .join(", ")
+        )?;
         for key in fields {
             let key = key.as_str().ok_or("invalid field")?;
             let kind = if schema["properties"][name]["properties"][key]["type"][0] == "integer" {
