@@ -62,7 +62,17 @@ pub(super) fn run() -> Result {
                     let log = PathBuf::from(&local)
                         .join("nddev-systeminfo/logs")
                         .join(name);
-                    if let Ok(log) = fs::read_to_string(log) {
+                    if let Ok(bytes) = fs::read(log) {
+                        let log = if bytes.starts_with(&[0xff, 0xfe]) {
+                            String::from_utf16_lossy(
+                                &bytes[2..]
+                                    .chunks_exact(2)
+                                    .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
+                                    .collect::<Vec<_>>(),
+                            )
+                        } else {
+                            String::from_utf8_lossy(&bytes).into_owned()
+                        };
                         eprintln!("{name}:\n{log}");
                     }
                 }
