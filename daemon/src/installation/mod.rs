@@ -292,6 +292,7 @@ fn atomic(path: &Path, bytes: &[u8], executable: bool) -> Result {
     let _ = executable;
     result
 }
+#[cfg(unix)]
 fn copy_file(source: &Path, destination: &Path, executable: bool) -> Result {
     atomic(destination, &fs::read(source)?, executable)
 }

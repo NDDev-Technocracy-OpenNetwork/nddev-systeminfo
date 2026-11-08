@@ -26,9 +26,23 @@ fn loaded(domain: &str, name: &str) -> Result<bool> {
 }
 fn disabled(domain: &str, name: &str) -> Result<bool> {
     let output = ctl(&["print-disabled", domain], true)?;
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .any(|line| line.trim().starts_with(&format!("\"{name}\" => true"))))
+    disabled_state(&String::from_utf8_lossy(&output.stdout), name)
+}
+fn disabled_state(document: &str, name: &str) -> Result<bool> {
+    for line in document.lines() {
+        if let Some((key, value)) = line.trim().split_once("=>")
+            && key.trim() == format!("\"{name}\"")
+        {
+            return match value.trim().trim_end_matches([',', ';']) {
+                "disabled" | "true" => Ok(true),
+                "enabled" | "false" => Ok(false),
+                _ => Err(InstallError::Invalid(
+                    "unrecognized native service enablement state",
+                )),
+            };
+        }
+    }
+    Ok(false)
 }
 fn agent(name: &str) -> Result<PathBuf> {
     Ok(home()?
@@ -273,4 +287,25 @@ pub(super) fn uninstall() -> Result {
     }
     remove_file(&state_dir()?.join("manifest.toml"))?;
     Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn launchd_disabled_overrides_accept_both_native_output_formats() {
+        for value in ["disabled", "true"] {
+            assert!(
+                disabled_state(
+                    &format!("disabled services = {{\n\t\"{PROVIDER}\" => {value}\n}}"),
+                    PROVIDER
+                )
+                .unwrap()
+            );
+        }
+        for value in ["enabled", "false"] {
+            assert!(!disabled_state(&format!("\"{PROVIDER}\" => {value}"), PROVIDER).unwrap());
+        }
+        assert!(!disabled_state("disabled services = {}", PROVIDER).unwrap());
+        assert!(disabled_state(&format!("\"{PROVIDER}\" => unknown"), PROVIDER).is_err());
+    }
 }

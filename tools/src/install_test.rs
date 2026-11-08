@@ -73,6 +73,11 @@ pub(super) fn run() -> Result {
     )?;
     let saved = fs::read(&config)?;
     invoke(&installed, &["service", "disable"])?;
+    let before: serde_json::Value =
+        serde_json::from_slice(&invoke(&installed, &["service", "status"])?.stdout)?;
+    if before["enabled"] != false {
+        return Err("native service disable did not report disabled state".into());
+    }
     invoke(&cli, &["install", "--source", source.to_str().unwrap()])?;
     let status: serde_json::Value =
         serde_json::from_slice(&invoke(&installed, &["service", "status"])?.stdout)?;
