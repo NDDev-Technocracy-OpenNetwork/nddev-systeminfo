@@ -419,7 +419,9 @@ pub(super) fn publish() -> Result {
     fs::write(
         &provenance,
         serde_json::to_string_pretty(
-            &json!({"format":1,"repository":github.repository,"repository_id":configuration.github.repository_id,"commit":commit,"publisher_commit":publisher_commit,"qualification_run_id":run_id,"artifacts":evidence,"assets":asset_hashes}),
+            // This immutable record describes the qualified product only.
+            // A newer maintained publisher must reproduce it during recovery.
+            &json!({"format":1,"repository":github.repository,"repository_id":configuration.github.repository_id,"commit":commit,"qualification_run_id":run_id,"artifacts":evidence,"assets":asset_hashes}),
         )?,
     )?;
     payload.insert(

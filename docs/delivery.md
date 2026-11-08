@@ -14,8 +14,9 @@ rebuilt during promotion.
 
 The publisher executes only from the maintained `dev` branch. A qualified
 revision's version and changelog are read as Git data; workflow inputs never
-choose source code to execute with write permissions. Provenance records both
-the product revision and the publisher revision.
+choose source code to execute with write permissions. Immutable provenance
+describes the qualified product so a newer publisher can reproduce it during
+recovery; its own checkout revision remains in the workflow execution record.
 
 Only after qualification does delivery fast-forward `main` to that exact
 commit, create an annotated version tag and upload a draft release. Each upload
