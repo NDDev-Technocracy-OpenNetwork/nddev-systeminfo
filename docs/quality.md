@@ -91,3 +91,10 @@ new configurations enable passive GPU counters; existing explicit false settings
 remain false. A current resource report must identify its exact source/binary,
 GPU setting, recording demand and native window state. Driver/firmware support
 is a capability, not an assumption inferred from the OS name.
+
+The [0.3.5 qualification record](history/2026-11-09/native-analysis.md) contains
+the provider comparison, actual one-hour retention run and separate native UI
+observations. Recording costs memory; native toolkits and GPU drivers have
+their own substantial costs. Pausing cancels the analysis reader, and closing
+the separate Linux analysis window exits its process. Releasing Rust history
+does not promise that the system allocator immediately returns every page.
