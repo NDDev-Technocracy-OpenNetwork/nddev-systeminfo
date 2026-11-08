@@ -100,8 +100,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 if command.len() != 4 {
                     return Err("config set needs KEY VALUE".into());
                 }
-                config.set(&command[2], &command[3])?;
-                config.store(&path)?;
+                Config::set_file(&path, &command[2], &command[3])?;
                 println!("{{\"saved\":true,\"applies\":\"next_start\"}}");
             }
             _ => return Err("unknown config command".into()),

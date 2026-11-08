@@ -111,6 +111,19 @@ pub enum ConfigError {
 }
 
 impl Config {
+    /// Serialize field edits across CLI and native UI processes. Reload under
+    /// the OS lock so simultaneous edits cannot overwrite unrelated fields.
+    pub fn set_file(path: &Path, key: &str, value: &str) -> Result<Self, ConfigError> {
+        let _lock = edit_lock(path)?;
+        let mut config = match std::fs::read_to_string(path) {
+            Ok(text) => Self::parse(&text)?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Self::parse(DEFAULT_TOML)?,
+            Err(error) => return Err(error.into()),
+        };
+        config.set(key, value)?;
+        config.write(path, false)?;
+        Ok(config)
+    }
     pub fn set(&mut self, key: &str, value: &str) -> Result<(), ConfigError> {
         let (section, name) = key
             .split_once('.')
@@ -136,29 +149,18 @@ impl Config {
     }
 
     pub fn store(&self, path: &Path) -> Result<(), ConfigError> {
+        let _lock = edit_lock(path)?;
         self.write(path, false).map(|_| ())
     }
     /// Commit a complete file atomically without replacing another writer.
     pub fn store_if_absent(&self, path: &Path) -> Result<bool, ConfigError> {
+        let _lock = edit_lock(path)?;
         self.write(path, true)
     }
     fn write(&self, path: &Path, only_new: bool) -> Result<bool, ConfigError> {
         use std::io::Write;
         self.validate()?;
-        if !path.is_absolute() {
-            return Err(ConfigError::Invalid("configuration path must be absolute"));
-        }
-        let parent = path
-            .parent()
-            .ok_or(ConfigError::Invalid("configuration parent missing"))?;
-        let mut directory = std::fs::DirBuilder::new();
-        directory.recursive(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            directory.mode(0o700);
-        }
-        directory.create(parent)?;
+        let parent = prepare_parent(path)?;
         let temporary = parent.join(format!(
             ".systeminfo-config-{}-{}.tmp",
             std::process::id(),
@@ -283,6 +285,44 @@ impl Config {
     }
 }
 
+fn edit_lock(path: &Path) -> Result<std::fs::File, ConfigError> {
+    let parent = prepare_parent(path)?;
+    let mut name = std::ffi::OsString::from(".");
+    name.push(
+        path.file_name()
+            .ok_or(ConfigError::Invalid("configuration file name missing"))?,
+    );
+    name.push(".lock");
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).truncate(false).read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let lock = options.open(parent.join(name))?;
+    lock.lock()?;
+    Ok(lock)
+}
+
+fn prepare_parent(path: &Path) -> Result<&Path, ConfigError> {
+    if !path.is_absolute() {
+        return Err(ConfigError::Invalid("configuration path must be absolute"));
+    }
+    let parent = path
+        .parent()
+        .ok_or(ConfigError::Invalid("configuration parent missing"))?;
+    let mut directory = std::fs::DirBuilder::new();
+    directory.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        directory.mode(0o700);
+    }
+    directory.create(parent)?;
+    Ok(parent)
+}
+
 /// Wire v1 cadence, a protocol bound shared by all clients.
 pub fn cadence(seconds: u64) -> Option<Duration> {
     match seconds {
@@ -330,5 +370,55 @@ mod tests {
         ] {
             assert!(Config::parse(&text).is_err());
         }
+    }
+    #[test]
+    fn concurrent_native_settings_preserve_every_field_and_invalid_edits_preserve_bytes() {
+        let directory = std::env::temp_dir().join(format!(
+            "si-config-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = directory.join("config.toml");
+        let edits = [
+            ("sampling.interval_seconds", "0"),
+            ("display.show_network", "false"),
+            ("display.show_cpu", "false"),
+            ("display.locale", "ar"),
+            ("display.theme", "dark"),
+            ("display.density", "comfortable"),
+        ];
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(edits.len()));
+        let writers: Vec<_> = edits
+            .into_iter()
+            .map(|(key, value)| {
+                let (barrier, path) = (barrier.clone(), path.clone());
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    Config::set_file(&path, key, value).unwrap();
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        let actual: toml::Value = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        for (key, expected) in edits {
+            let (section, field) = key.split_once('.').unwrap();
+            let value = &actual[section][field];
+            assert_eq!(
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| value.to_string()),
+                expected
+            );
+        }
+        let before = std::fs::read(&path).unwrap();
+        assert!(Config::set_file(&path, "sampling.interval_seconds", "61").is_err());
+        assert_eq!(before, std::fs::read(&path).unwrap());
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

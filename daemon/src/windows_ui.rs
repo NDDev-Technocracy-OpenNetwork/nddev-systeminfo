@@ -102,10 +102,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             Event::Command(RECONNECT) => restart(&mut state, &shared.1),
             Event::Command(id) => {
                 if let Some((key, value)) = settings(&state).into_iter().find_map(|(item, key, value)| (item == id).then_some((key, value))) {
-                    let mut candidate = state.config.clone();
-                    let result = candidate.set(&key, &value).and_then(|()| candidate.store(&config::default_path()?));
+                    let result = config::default_path().map_err(config::ConfigError::from)
+                        .and_then(|path| Config::set_file(&path, &key, &value));
                     match result {
-                        Ok(()) => {
+                        Ok(candidate) => {
                             state.config = candidate;
                             state.catalog = Catalog::load(&state.config.display.locale, &[&tray::system_language()]);
                             state.refresh_icon();
