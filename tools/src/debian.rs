@@ -87,6 +87,11 @@ pub(super) fn package() -> Result {
             false,
         )?;
     }
+    copy(
+        Path::new("packaging/linux/nddev-systeminfo.desktop"),
+        &root.join("usr/share/applications/nddev-systeminfo.desktop"),
+        false,
+    )?;
     for file in [
         "LICENSE",
         "NOTICE",

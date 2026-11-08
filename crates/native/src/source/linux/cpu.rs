@@ -83,7 +83,7 @@ impl Cpu {
                 .and_then(|(_, before)| sample.usage(*before));
             self.readings.push(Core {
                 id,
-                usage: value.map(|v| f64::from((v * 10.0).round() / 10.0)),
+                usage: value.map(|v| (v * 10.0).round() / 10.0),
             });
             self.current.push((id, sample));
         }

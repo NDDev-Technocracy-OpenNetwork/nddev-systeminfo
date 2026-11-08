@@ -29,6 +29,9 @@ impl Gpu {
             names: Vec::new(),
         }
     }
+    pub(super) fn available(&self) -> bool {
+        self.nvml.is_some()
+    }
     pub(super) fn devices(&self) -> &[Device] {
         &self.devices
     }
@@ -100,6 +103,9 @@ pub(super) struct Gpu;
 impl Gpu {
     pub(super) fn new(_enabled: bool) -> Self {
         Self
+    }
+    pub(super) fn available(&self) -> bool {
+        false
     }
     pub(super) fn devices(&self) -> &[Device] {
         &[]

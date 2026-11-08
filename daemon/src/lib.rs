@@ -1,6 +1,9 @@
 //! Standalone Systeminfo contract, client and configuration. No NDS initialization.
+pub mod analysis;
 pub mod client;
 pub mod config;
+pub mod desktop;
+pub mod history;
 pub mod installation;
 pub mod presentation;
 pub mod telemetry;

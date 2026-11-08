@@ -17,7 +17,7 @@ pub(super) fn load() -> Config {
             level: "info".into(),
         },
         sampling: Sampling {
-            gpu: false,
+            gpu: true,
             idle_release_seconds: 30,
             interval_seconds: 5,
         },

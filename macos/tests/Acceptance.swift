@@ -41,7 +41,26 @@ func runNativeAcceptance(_ app: AppDelegate) async throws {
         try await until { app.acceptanceHasSample }
         precondition(app.acceptanceMenu.userInterfaceLayoutDirection == (code == "ar" ? .rightToLeft : .leftToRight))
         try captureMenu(app.acceptanceMenu, folder.appendingPathComponent("\(code)-\(theme).png"))
+        app.acceptanceOpenAnalysis()
+        try await until { app.acceptanceAnalysis?.acceptanceView?.metric == "cpu.usage" }
+        guard let analysis = app.acceptanceAnalysis, let window = analysis.window else { throw TestFailure.missingSetting }
+        window.displayIfNeeded()
+        try captureWindow(window, folder.appendingPathComponent("analysis-\(code)-\(theme).png"))
     }
+    guard let analysis = app.acceptanceAnalysis,
+          let core = analysis.acceptanceView?.latest?.detail.cores.first else { throw TestFailure.missingSetting }
+    analysis.acceptanceSelect("core:\(core.id)")
+    try await until { analysis.acceptanceView?.metric == "core:\(core.id)" }
+    analysis.acceptancePause()
+    precondition(analysis.acceptancePaused && !analysis.acceptanceHasReader)
+    let pausedSequence = analysis.acceptanceView?.latest?.detail.sequence
+    try await Task.sleep(nanoseconds: 600_000_000)
+    precondition(analysis.acceptanceView?.latest?.detail.sequence == pausedSequence)
+    analysis.acceptancePause()
+    try await until { !analysis.acceptancePaused && analysis.acceptanceHasReader }
+    try captureWindow(analysis.window!, folder.appendingPathComponent("logical-core.png"))
+    analysis.close()
+    precondition(app.acceptanceAnalysis == nil)
     try await select("sampling.interval_seconds", "0")
     try await until { app.acceptanceHasSample }
     guard let copyIndex = app.acceptanceMenu.items.firstIndex(where: { $0.action == NSSelectorFromString("copyReport") }) else { throw TestFailure.missingSetting }
@@ -55,13 +74,22 @@ func runNativeAcceptance(_ app: AppDelegate) async throws {
     let rows = app.acceptanceMenu.items.filter { $0.title.contains("\u{2068}—\u{2069}") }
     precondition(rows.count == 12)
     try captureMenu(app.acceptanceMenu, folder.appendingPathComponent("offline.png"))
-    try Data("{\"native_menu\":true,\"locales\":5,\"themes\":4,\"settings\":true,\"clipboard\":true,\"offline_cleared\":12}\n".utf8)
+    try Data("{\"native_menu\":true,\"analysis_window\":true,\"logical_core\":true,\"pause_resume_close\":true,\"locales\":5,\"themes\":4,\"settings\":true,\"clipboard\":true,\"offline_cleared\":12}\n".utf8)
         .write(to: folder.appendingPathComponent("result.json"), options: .atomic)
     print("PASS: real AppKit menu, five locales, four themes, settings, clipboard and provider disconnect")
     NSApplication.shared.terminate(nil)
 }
 
 private enum TestFailure: Error { case timeout, missingSetting, screenshot }
+@MainActor
+private func captureWindow(_ window: NSWindow, _ path: URL) throws {
+    window.displayIfNeeded()
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+    process.arguments = ["-x", "-l", String(window.windowNumber), path.path]
+    try process.run(); process.waitUntilExit()
+    guard process.terminationStatus == 0 && NSImage(contentsOf: path) != nil else { throw TestFailure.screenshot }
+}
 @MainActor
 private func until(_ predicate: () -> Bool) async throws {
     let deadline = ProcessInfo.processInfo.systemUptime + 15

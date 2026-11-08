@@ -48,7 +48,7 @@ impl Cpu {
             let elapsed: u64 = delta.iter().sum();
             let active = elapsed - delta[CPU_STATE_IDLE];
             let usage = (id < previous_count && elapsed > 0)
-                .then(|| (active as f64 * 1000.0 / elapsed as f64).round() / 10.0);
+                .then(|| ((active as f64 * 1000.0 / elapsed as f64).round() / 10.0) as f32);
             self.cores.push(Core {
                 id: id as u32,
                 usage,

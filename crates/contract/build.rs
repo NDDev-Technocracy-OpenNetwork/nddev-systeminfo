@@ -24,6 +24,9 @@ fn main() {
     let mut validation = String::from(
         "impl WireSnapshot {\n    pub fn validate(&self) -> Result<(), ProtocolError> {\n        if self.v != PROTOCOL_VERSION { return Err(ProtocolError::UnsupportedVersion); }\n",
     );
+    let mut descriptors = String::from("pub const METRICS: &[Metric] = &[\n");
+    let mut lookup =
+        String::from("pub fn metric_value(s:&WireSnapshot,key:&str)->Option<f64>{match key {\n");
     for group in groups {
         let name = group.as_str().unwrap();
         let definition = &schema["properties"][name];
@@ -53,6 +56,22 @@ fn main() {
             let integer = leaf["type"][0] == "integer";
             let flat_type = if integer { "u64" } else { "f32" };
             let wire_type = if integer { "u64" } else { "f64" };
+            let label = leaf["x-label"].as_str().unwrap_or(field);
+            let unit = leaf["x-unit"].as_str().unwrap();
+            writeln!(
+                descriptors,
+                "Metric{{key:{:?},label:{label:?},unit:{unit:?}}},",
+                format!("{name}.{key}")
+            )
+            .unwrap();
+            writeln!(
+                lookup,
+                "{:?} => s.{name}.{key}{},",
+                format!("{name}.{key}"),
+                if integer { ".map(|v|v as f64)" } else { "" }
+            )
+            .unwrap();
+
             writeln!(flat, "    pub {field}: Option<{flat_type}>,").unwrap();
             writeln!(types, "    #[serde(deserialize_with = \"Option::deserialize\")]\n    pub {key}: Option<{wire_type}>,").unwrap();
             let prefix = format!("{}\"{key}\":", if index == 0 { "" } else { "," });
@@ -84,8 +103,14 @@ fn main() {
     wire.push_str("}\n");
     encode.push_str("        out.push_str(\"}\\n\");\n    }\n}\n");
     validation.push_str("        Ok(())\n    }\n}\n");
+    descriptors.push_str("];\n");
+    lookup.push_str("_=>None}}\n");
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("snapshot.rs");
-    fs::write(output, flat + &wire + &types + &encode + &validation).unwrap();
+    fs::write(
+        output,
+        flat + &wire + &types + &encode + &validation + &descriptors + &lookup,
+    )
+    .unwrap();
     analysis();
 }
 
@@ -98,6 +123,7 @@ fn analysis() {
         ("MAX_ANALYSIS_FRAME_BYTES", "x-max-frame-bytes"),
         ("MAX_CORES", "x-max-cores"),
         ("MAX_GPUS", "x-max-gpus"),
+        ("MAX_VIEW_FRAME_BYTES", "x-max-view-bytes"),
     ] {
         writeln!(output, "pub const {name}: usize = {};", schema[key]).unwrap();
     }
@@ -122,7 +148,9 @@ fn analysis() {
         .unwrap();
         for (field, value) in definition["properties"].as_object().unwrap() {
             let (kind, nullable) = analysis_type(value);
-            if nullable {
+            if nullable && kind == "f32" {
+                output.push_str("    #[serde(deserialize_with = \"percent32\")]\n");
+            } else if nullable {
                 output.push_str("    #[serde(deserialize_with = \"Option::deserialize\")]\n");
             }
             writeln!(
@@ -156,7 +184,7 @@ fn analysis_type(value: &Value) -> (String, bool) {
     };
     let result = match kind {
         "integer" => value["x-rust-type"].as_str().unwrap_or("u64").into(),
-        "number" => "f64".into(),
+        "number" => value["x-rust-type"].as_str().unwrap_or("f64").into(),
         "string" => "String".into(),
         "boolean" => "bool".into(),
         "array" => format!("Vec<{}>", analysis_type(&value["items"]).0),

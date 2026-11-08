@@ -3,6 +3,7 @@ Version: @VERSION@
 Architecture: amd64
 Maintainer: NDDev OpenNetwork <danil@nddev.it.com>
 Depends: init-system-helpers (>= 1.66), @SHLIBS@
+Suggests: gjs, gir1.2-gtk-4.0, gir1.2-adw-1
 Breaks: rldyour-sysinfo (<< 0.3.2)
 Replaces: rldyour-sysinfo (<< 0.3.2)
 Section: utils

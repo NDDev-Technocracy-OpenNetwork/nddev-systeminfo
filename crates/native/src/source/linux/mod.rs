@@ -90,9 +90,15 @@ struct VirtualFile {
 
 impl VirtualFile {
     fn open(path: impl AsRef<Path>) -> io::Result<Self> {
+        Self::with_capacity(path, 4096)
+    }
+    fn scalar(path: impl AsRef<Path>) -> io::Result<Self> {
+        Self::with_capacity(path, 64)
+    }
+    fn with_capacity(path: impl AsRef<Path>, capacity: usize) -> io::Result<Self> {
         Ok(Self {
             file: File::open(path)?,
-            buf: String::with_capacity(4096),
+            buf: String::with_capacity(capacity),
         })
     }
 

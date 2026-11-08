@@ -26,6 +26,14 @@ pub fn decode(bytes: &[u8]) -> Result<Frame, ProtocolError> {
     Ok(frame)
 }
 
+fn percent32<'de, D: serde::Deserializer<'de>>(decoder: D) -> Result<Option<f32>, D::Error> {
+    let value = Option::<f64>::deserialize(decoder)?;
+    if value.is_some_and(|v| !v.is_finite() || !(0.0..=100.0).contains(&v)) {
+        return Err(serde::de::Error::custom("invalid core percentage"));
+    }
+    Ok(value.map(|v| v as f32))
+}
+
 impl Details {
     pub fn validate(&self) -> Result<(), ProtocolError> {
         let percent =
@@ -40,7 +48,7 @@ impl Details {
         if self
             .cores
             .iter()
-            .any(|v| !cores.insert(v.id) || !percent(v.usage))
+            .any(|v| !cores.insert(v.id) || !percent(v.usage.map(f64::from)))
         {
             return Err(ProtocolError::InvalidMetric);
         }
@@ -101,6 +109,11 @@ mod tests {
         assert!(super::super::decode(out.as_bytes()).is_ok());
         let mut frame = decode(out.as_bytes()).unwrap();
         assert_eq!(frame.detail.cores.len(), 1);
+        let excessive = out.replace("\"usage\":null}", "\"usage\":100.00000001}");
+        assert!(
+            decode(excessive.as_bytes()).is_err(),
+            "validate before f32 narrowing"
+        );
         frame.detail.cores.push(Core {
             id: 0,
             usage: Some(20.0),
@@ -117,7 +130,7 @@ mod tests {
             gpu_enabled: true,
             cores: vec![Core {
                 id: 0,
-                usage: Some(f64::NAN),
+                usage: Some(f32::NAN),
             }],
             gpus: vec![],
         };

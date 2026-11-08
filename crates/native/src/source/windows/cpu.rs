@@ -35,7 +35,7 @@ impl Cpu {
                 Core {
                     id: id as u32,
                     usage: primed
-                        .then(|| f64::from((cpu.usage() * 10.0).round() / 10.0))
+                        .then(|| (cpu.usage() * 10.0).round() / 10.0)
                         .filter(|v| v.is_finite() && (0.0..=100.0).contains(v)),
                 }
             }));

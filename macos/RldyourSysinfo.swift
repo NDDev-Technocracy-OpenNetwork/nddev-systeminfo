@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var watchedDirectory: URL?
     private var configFile: URL?
     private var localeObserver: NSObjectProtocol?
+    private var analysisWindow: AnalysisWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let directory = Bundle.main.executableURL!.deletingLastPathComponent()
@@ -44,13 +45,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.button?.imagePosition = .imageLeading
         menu.delegate = self
         menu.autoenablesItems = false
-        statusItem.menu = menu
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(openDashboard(_:))
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         rebuildMenu()
         localeObserver = NotificationCenter.default.addObserver(
             forName: NSLocale.currentLocaleDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in Task { @MainActor in self?.rebuildMenu() } }
         Task {
             await initializeConfig()
+            if CommandLine.arguments.contains("--show") { showOverview() }
             #if UI_ACCEPTANCE
             do { try await runNativeAcceptance(self) }
             catch { FileHandle.standardError.write(Data("native acceptance failed: \(error)\n".utf8)); exit(1) }
@@ -62,11 +66,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         clientGeneration &+= 1
         client?.stop()
         client = nil
+        analysisWindow?.close()
+        analysisWindow = nil
         watcher?.cancel()
         watcher = nil
         if let localeObserver { NotificationCenter.default.removeObserver(localeObserver) }
     }
     func menuWillOpen(_ menu: NSMenu) { Task { await reload() } }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showOverview(); return true }
 
     private func initializeConfig() async {
         do {
@@ -169,6 +176,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
+        menu.addItem(action("overview", #selector(showOverview)))
+        menu.addItem(action("history", #selector(showHistory)))
+        menu.addItem(action("website", #selector(openWebsite)))
         copyItem = action("copy_report", #selector(copyReport))
         menu.addItem(copyItem)
         menu.addItem(action("retry", #selector(reconnect)))
@@ -181,6 +191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         quit.keyEquivalent = "q"
         menu.addItem(quit)
         update(sample)
+        analysisWindow?.configure(config ?? resources.defaults, language: language)
     }
     private func settingsMenu() -> NSMenu {
         let result = NSMenu()
@@ -280,6 +291,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     private struct ApplyReply: Decodable { let applied: Bool }
     @objc private func reconnect() { restartClient() }
+    @objc private func openDashboard(_ sender: Any?) {
+        if NSApp.currentEvent?.type == .rightMouseUp { openSettingsMenu(sender) }
+        else { showOverview() }
+    }
+    @objc private func showOverview() { showAnalysis(nil) }
+    @objc private func showHistory() { showAnalysis("cpu.usage") }
+    private func showAnalysis(_ metric: String?) {
+        guard let resources else { return }
+        if analysisWindow == nil {
+            analysisWindow = AnalysisWindow(resource: resources, config: config ?? resources.defaults,
+                language: language, cli: cli) { [weak self] in self?.analysisWindow = nil }
+        }
+        analysisWindow?.open(metric: metric)
+    }
+    @objc func openSettingsMenu(_ sender: Any?) {
+        menu.popUp(positioning: settingsItem, at: NSPoint(x: 0, y: 0), in: statusItem.button)
+    }
+    @objc private func openWebsite() { if let url = URL(string: resources!.website) { NSWorkspace.shared.open(url) } }
     @objc private func quitApp() { NSApplication.shared.terminate(nil) }
     #if UI_ACCEPTANCE
     var acceptanceMenu: NSMenu { menu }
@@ -287,6 +316,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var acceptanceHasSample: Bool { sample != nil }
     var acceptanceCLI: ConfigCLI { cli }
     func acceptanceReload() async { await reload() }
+    var acceptanceAnalysis: AnalysisWindow? { analysisWindow }
+    func acceptanceOpenAnalysis() { showAnalysis("cpu.usage") }
     #endif
 }
 

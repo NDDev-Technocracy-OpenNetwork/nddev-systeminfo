@@ -18,8 +18,41 @@ struct Card {
     power: Option<VirtualFile>,
     busy: Option<VirtualFile>,
     used: Option<VirtualFile>,
+    shared: Option<VirtualFile>,
     total: Option<VirtualFile>,
     temperature: Option<VirtualFile>,
+}
+impl Card {
+    fn discover(path: &std::path::Path) -> Option<Self> {
+        let device = fs::canonicalize(path).ok()?;
+        let id = device.file_name()?.to_str()?.to_string();
+        let vendor = fs::read_to_string(path.join("vendor"))
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let brand = match vendor.as_str() {
+            "0x1002" => "AMD GPU",
+            "0x8086" => "Intel GPU",
+            "0x10de" => "NVIDIA GPU",
+            _ => "GPU",
+        };
+        let temperature = fs::read_dir(path.join("hwmon"))
+            .ok()
+            .and_then(|mut entries| {
+                entries.find_map(|e| VirtualFile::scalar(e.ok()?.path().join("temp1_input")).ok())
+            });
+        Some(Self {
+            id,
+            name: brand.into(),
+            vendor,
+            power: VirtualFile::scalar(path.join("power/runtime_status")).ok(),
+            busy: VirtualFile::scalar(path.join("gpu_busy_percent")).ok(),
+            used: VirtualFile::scalar(path.join("mem_info_vram_used")).ok(),
+            shared: VirtualFile::scalar(path.join("mem_info_gtt_used")).ok(),
+            total: VirtualFile::scalar(path.join("mem_info_vram_total")).ok(),
+            temperature,
+        })
+    }
 }
 pub(super) struct Gpu {
     enabled: bool,
@@ -46,58 +79,43 @@ impl Gpu {
         &self.devices
     }
     fn discover(&mut self) {
-        self.cards.clear();
-        self.nvidia = None;
+        let mut paths = Vec::new();
         if let Ok(entries) = fs::read_dir("/sys/class/drm") {
             for entry in entries.flatten() {
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
-                if !name
+                if name
                     .strip_prefix("card")
                     .is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
-                    || self.cards.len() == MAX_GPUS
                 {
-                    continue;
+                    paths.push(entry.path().join("device"));
                 }
-                let path = entry.path().join("device");
-                let Ok(device) = fs::canonicalize(&path) else {
-                    continue;
-                };
-                let Some(id) = device
-                    .file_name()
-                    .and_then(|v| v.to_str())
-                    .map(str::to_owned)
-                else {
-                    continue;
-                };
-                let vendor = fs::read_to_string(path.join("vendor"))
-                    .unwrap_or_default()
-                    .trim()
-                    .to_string();
-                let brand = match vendor.as_str() {
-                    "0x1002" => "AMD GPU",
-                    "0x8086" => "Intel GPU",
-                    "0x10de" => "NVIDIA GPU",
-                    _ => "GPU",
-                };
-                let temperature = fs::read_dir(path.join("hwmon"))
-                    .ok()
-                    .and_then(|mut entries| {
-                        entries.find_map(|entry| {
-                            VirtualFile::open(entry.ok()?.path().join("temp1_input")).ok()
-                        })
-                    });
-                self.cards.push(Card {
-                    id,
-                    name: brand.into(),
-                    vendor,
-                    power: VirtualFile::open(path.join("power/runtime_status")).ok(),
-                    busy: VirtualFile::open(path.join("gpu_busy_percent")).ok(),
-                    used: VirtualFile::open(path.join("mem_info_vram_used")).ok(),
-                    total: VirtualFile::open(path.join("mem_info_vram_total")).ok(),
-                    temperature,
-                });
             }
+        }
+        // Headless NVIDIA compute devices need not expose a DRM card.
+        if let Ok(entries) = fs::read_dir("/sys/bus/pci/devices") {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if fs::read_to_string(path.join("vendor")).is_ok_and(|v| v.trim() == "0x10de")
+                    && fs::read_to_string(path.join("class")).is_ok_and(|v| v.starts_with("0x03"))
+                {
+                    paths.push(path);
+                }
+            }
+        }
+        self.cards.clear();
+        for path in paths {
+            if self.cards.len() == MAX_GPUS {
+                break;
+            }
+            if let Some(card) = Card::discover(&path)
+                && !self.cards.iter().any(|old| old.id == card.id)
+            {
+                self.cards.push(card);
+            }
+        }
+        if self.nvidia.as_ref().is_some_and(|n| !n.available()) {
+            self.nvidia = None;
         }
         self.cards.sort_unstable_by(|a, b| a.id.cmp(&b.id));
         self.discovered = Instant::now();
@@ -154,7 +172,11 @@ impl Gpu {
                 usage,
                 dedicated_used: used,
                 dedicated_total: total,
-                shared_used: None,
+                shared_used: if sleeping {
+                    None
+                } else {
+                    number(card.shared.as_mut())
+                },
                 temperature,
             });
         }

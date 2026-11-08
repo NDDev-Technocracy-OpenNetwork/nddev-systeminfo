@@ -40,7 +40,8 @@
             "null"
           ],
           "minimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "x-rust-type": "f32"
         }
       }
     },
@@ -171,5 +172,6 @@
     "max-records": 7201,
     "max-bytes": 8388608,
     "plot-columns": 512
-  }
+  },
+  "x-max-view-bytes": 1048576
 }

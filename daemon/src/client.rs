@@ -67,6 +67,33 @@ impl Client {
         Cancellation(self.reader.get_ref().socket.clone())
     }
     pub fn connect(path: &Path, interval: u64, timeout: Duration) -> Result<Self, ClientError> {
+        Self::open(path, interval, timeout, None, false)
+    }
+    /// Ordinary v1 monitoring with explicit one-hour history retention.
+    pub fn connect_recording(
+        path: &Path,
+        interval: u64,
+        timeout: Duration,
+    ) -> Result<Self, ClientError> {
+        Self::open(path, interval, timeout, None, true)
+    }
+    /// Negotiate larger detail frames and an optional history replay. Ordinary
+    /// v1 clients keep their original handshake, buffer and validation limits.
+    pub fn connect_analysis(
+        path: &Path,
+        interval: u64,
+        timeout: Duration,
+        history: bool,
+    ) -> Result<Self, ClientError> {
+        Self::open(path, interval, timeout, Some(history), true)
+    }
+    fn open(
+        path: &Path,
+        interval: u64,
+        timeout: Duration,
+        history: Option<bool>,
+        record: bool,
+    ) -> Result<Self, ClientError> {
         let cadence = cadence(interval).ok_or(ClientError::InvalidConfiguration)?;
         if !path.is_absolute() || timeout.is_zero() || timeout > Duration::from_secs(60) {
             return Err(ClientError::InvalidConfiguration);
@@ -74,7 +101,16 @@ impl Client {
         let stream = Socket::new(Domain::UNIX, Type::STREAM, None)?;
         stream.connect_timeout(&SockAddr::unix(path)?, timeout)?;
         stream.set_write_timeout(Some(timeout))?;
-        writeln!(&stream, "{{\"interval\":{interval}}}")?;
+        if let Some(history) = history {
+            writeln!(
+                &stream,
+                "{{\"interval\":{interval},\"details\":true,\"history\":{history},\"record\":true}}"
+            )?;
+        } else if record {
+            writeln!(&stream, "{{\"interval\":{interval},\"record\":true}}")?;
+        } else {
+            writeln!(&stream, "{{\"interval\":{interval}}}")?;
+        }
         Ok(Self {
             reader: BufReader::with_capacity(
                 1024,
@@ -88,6 +124,26 @@ impl Client {
         })
     }
     pub fn next_sample(&mut self) -> Result<WireSnapshot, ClientError> {
+        Ok(protocol::decode(
+            self.read_line(protocol::MAX_FRAME_BYTES)?,
+        )?)
+    }
+    /// None marks the end of initial history. Socket EOF is an IO error.
+    pub fn next_analysis(&mut self) -> Result<Option<protocol::analysis::Frame>, ClientError> {
+        let bytes = self.read_line(protocol::analysis::MAX_ANALYSIS_FRAME_BYTES)?;
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Boundary {
+            history_end: bool,
+        }
+        if !bytes.starts_with(b"{\"v\":")
+            && serde_json::from_slice::<Boundary>(bytes).is_ok_and(|b| b.history_end)
+        {
+            return Ok(None);
+        }
+        Ok(Some(protocol::analysis::decode(bytes)?))
+    }
+    fn read_line(&mut self, maximum: usize) -> Result<&[u8], ClientError> {
         let deadline = Instant::now() + self.timeout;
         self.reader.get_mut().deadline = deadline;
         self.buffer.clear();
@@ -105,17 +161,16 @@ impl Client {
             }
             let newline = available.iter().position(|byte| *byte == b'\n');
             let count = newline.unwrap_or(available.len());
-            if self.buffer.len() + count > protocol::MAX_FRAME_BYTES {
+            if self.buffer.len() + count > maximum {
                 return Err(protocol::ProtocolError::InvalidFrame.into());
             }
             self.buffer.extend_from_slice(&available[..count]);
             self.reader.consume(count + usize::from(newline.is_some()));
             if newline.is_some() {
-                let snapshot = protocol::decode(&self.buffer)?;
                 if Instant::now() >= deadline {
                     return Err(io::ErrorKind::TimedOut.into());
                 }
-                return Ok(snapshot);
+                return Ok(&self.buffer);
             }
         }
     }

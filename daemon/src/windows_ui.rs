@@ -193,7 +193,7 @@ fn collect(shared: Shared, proxy: Proxy) {
         let connect = transport::socket_path()
             .map_err(crate::client::ClientError::from)
             .and_then(|path| {
-                Client::connect(
+                Client::connect_recording(
                     &path,
                     config.sampling.interval_seconds,
                     Duration::from_millis(config.transport.client_timeout_ms),

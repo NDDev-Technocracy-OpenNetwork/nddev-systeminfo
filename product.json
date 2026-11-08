@@ -1,0 +1,15 @@
+{
+  "website": "https://nddev.ai/opennetwork",
+  "analysis": {
+    "ranges_seconds": [900, 1800, 3600],
+    "cores_per_page": 16
+  },
+  "cells": [
+    {"label": "cpu", "metric": "cpu.usage"},
+    {"label": "memory", "metric": "memory.used"},
+    {"label": "gpu", "metric": "gpu.usage"},
+    {"label": "disk", "metric": "disk.read"},
+    {"label": "network", "metric": "net.rx"},
+    {"label": "history", "metric": "cpu.usage"}
+  ]
+}

@@ -1,5 +1,6 @@
 //! Standalone CLI; stdout samples remain a stable machine interface.
 use nddev_systeminfo::{
+    analysis::{Selection, Store},
     client::Client,
     config::{self, Config, LegacySettings},
     protocol,
@@ -24,12 +25,16 @@ fn run() -> Result<(), Box<dyn Error>> {
     let (mut config_path, mut socket, mut interval) = (None, None, None);
     let (mut once, mut json) = (false, false);
     let mut legacy = None;
+    let mut details = false;
+    let mut metric = String::from("cpu.usage");
+    let mut range_seconds = protocol::analysis::HISTORY_SECONDS as u64;
+    let mut columns = protocol::analysis::PLOT_COLUMNS;
     let mut command = Vec::new();
     while let Some(argument) = args.next() {
         match argument.as_str() {
             "--help" | "-h" => {
                 println!(
-                    "NDDev Systeminfo {}\n\nnddev-systeminfo [sample|watch] [--once] [--socket PATH] [--interval 0..60]\nnddev-systeminfo config <show|path|check|init|set KEY VALUE> [--json]\nnddev-systeminfo schema\n\n--config FILE selects a complete TOML configuration.\n0 requests realtime (500 ms). Missing readings remain null.\nNative collection requires Linux, macOS or Windows; NDS is optional.",
+                    "NDDev Systeminfo {}\n\nnddev-systeminfo [sample|watch] [--once] [--socket PATH] [--interval 0..60]\nnddev-systeminfo config <show|path|check|init|set KEY VALUE> [--json]\nnddev-systeminfo [history|analyze] [--metric cpu.usage|core:0|gpu:ID:usage] [--range-seconds 1..3600] [--once]\nnddev-systeminfo schema [--details]\n\n--config FILE selects a complete TOML configuration.\n0 requests realtime (500 ms). Missing readings remain null.\nNative collection requires Linux, macOS or Windows; NDS is optional.",
                     env!("CARGO_PKG_VERSION")
                 );
                 return Ok(());
@@ -53,6 +58,15 @@ fn run() -> Result<(), Box<dyn Error>> {
                         .parse::<u64>()?,
                 )
             }
+            "--details" => details = true,
+            "--metric" => metric = args.next().ok_or("--metric needs a series key")?,
+            "--range-seconds" => {
+                range_seconds = args
+                    .next()
+                    .ok_or("--range-seconds needs a number")?
+                    .parse()?
+            }
+            "--columns" => columns = args.next().ok_or("--columns needs a number")?.parse()?,
             "--once" => once = true,
             "--json" => json = true,
             "--legacy-json" => legacy = Some(args.next().ok_or("--legacy-json needs an object")?),
@@ -64,7 +78,18 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
     let operation = command.first().map(String::as_str).unwrap_or("sample");
     if operation == "schema" {
-        println!("{}", protocol::SCHEMA);
+        println!(
+            "{}",
+            if details {
+                protocol::analysis::SCHEMA
+            } else {
+                protocol::SCHEMA
+            }
+        );
+        return Ok(());
+    }
+    if operation == "ui" && command.len() == 1 {
+        nddev_systeminfo::desktop::open(config_path.as_deref(), Some(&metric))?;
         return Ok(());
     }
     let mut config = if operation == "config"
@@ -107,18 +132,71 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         return Ok(());
     }
-    if command.len() > 1 || !["sample", "watch"].contains(&operation) {
+    if command.len() > 1 || !["sample", "watch", "history", "analyze"].contains(&operation) {
         return Err("unknown command; use --help".into());
     }
     let path = socket.map(Ok).unwrap_or_else(transport::socket_path)?;
     let interval = interval.unwrap_or(config.sampling.interval_seconds);
-    let mut client = Client::connect(
-        &path,
-        interval,
-        Duration::from_millis(config.transport.client_timeout_ms),
-    )?;
+    let analysis = details || operation == "history" || operation == "analyze";
+    let history = operation == "history" || operation == "analyze";
+    let timeout = Duration::from_millis(config.transport.client_timeout_ms);
+    let mut client = if analysis {
+        Client::connect_analysis(&path, interval, timeout, history)?
+    } else {
+        Client::connect(&path, interval, timeout)?
+    };
     let stdout = io::stdout();
     let mut output = stdout.lock();
+    if analysis {
+        if !(1..=protocol::analysis::HISTORY_SECONDS as u64).contains(&range_seconds)
+            || !(1..=protocol::analysis::PLOT_COLUMNS * 4).contains(&columns)
+        {
+            return Err("analysis range or column limit exceeded".into());
+        }
+        let selection = Selection::parse(&metric).ok_or("unknown metric series")?;
+        let mut store = Store::default();
+        let mut replaying = history;
+        loop {
+            match client.next_analysis()? {
+                None => {
+                    replaying = false;
+                    if operation == "history" {
+                        return Ok(());
+                    }
+                    if operation == "analyze" {
+                        serde_json::to_writer(
+                            &mut output,
+                            &store.view(&selection, range_seconds, columns),
+                        )?;
+                        output.write_all(b"\n")?;
+                        output.flush()?;
+                        if once {
+                            return Ok(());
+                        }
+                    }
+                }
+                Some(frame) => {
+                    if operation == "analyze" {
+                        store.push(frame);
+                        if replaying {
+                            continue;
+                        }
+                        serde_json::to_writer(
+                            &mut output,
+                            &store.view(&selection, range_seconds, columns),
+                        )?;
+                    } else {
+                        serde_json::to_writer(&mut output, &frame)?;
+                    }
+                    output.write_all(b"\n")?;
+                    output.flush()?;
+                    if !replaying && (once || operation == "sample") {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
     loop {
         let sample = client.next_sample()?;
         serde_json::to_writer(&mut output, &sample)?;

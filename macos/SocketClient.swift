@@ -32,7 +32,7 @@ final class MetricsClient: @unchecked Sendable {
         self.timeout = Double(timeoutMs) / 1000
         self.retrySeconds = Double(reconnectSeconds)
         self.onEvent = onEvent
-        self.announcement = Data("{\"interval\":\(self.interval)}\n".utf8)
+        self.announcement = Data("{\"interval\":\(self.interval),\"record\":true}\n".utf8)
         buffer.reserveCapacity(WireContract.maxFrame)
     }
 

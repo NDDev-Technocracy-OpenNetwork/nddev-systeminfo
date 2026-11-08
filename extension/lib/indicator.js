@@ -34,6 +34,7 @@ export const Indicator = GObject.registerClass(class Indicator extends PanelMenu
         this.menu.connect('open-state-changed', () => this._constrain());
         this._workareaId = global.display.connect('workareas-changed', () => this._constrain());
         this._fields = new Map(); this._rowItems = [];
+        this._cellItems = [];
         this._client = null; this._panel = null; this._sample = null; this._connected = false;
         this._changedId = settings.connect(() => this._rebuild());
         this._appearance = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
@@ -64,6 +65,23 @@ export const Indicator = GObject.registerClass(class Indicator extends PanelMenu
         this._header.add_child(this._heading); this.menu.addMenuItem(this._header);
         this._status = new PopupMenu.PopupMenuItem(settings.text('disconnected'), {reactive: false});
         this.menu.addMenuItem(this._status);
+        for (let offset = 0; offset < settings.resource.cells.length; offset += 2) {
+            const row = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
+            for (const spec of settings.resource.cells.slice(offset, offset + 2)) {
+                const series = settings.resource.series.find(s => s.key === spec.metric);
+                const format = series.unit === 'percent' ? 'percent' : series.unit === 'celsius' ? 'celsius' : 'rate';
+                const content = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL});
+                const title = new St.Label({text: settings.text(spec.label)});
+                const value = this._value(`${spec.metric}:${format}`, 'systeminfo-value');
+                content.add_child(title); content.add_child(value);
+                const button = new St.Button({child: content, can_focus: true, reactive: true, x_expand: true,
+                    accessible_name: `${settings.text(spec.label)} · ${settings.text('details')}`});
+                button.connect('clicked', () => this._openAnalysis(spec.metric));
+                button.connect('key-focus-in', () => this._reveal(row));
+                row.add_child(button); this._cellItems.push({button, content, title, value});
+            }
+            this.menu.addMenuItem(row);
+        }
         for (const [key, field] of ROWS) {
             const item = new PopupMenu.PopupBaseMenuItem({can_focus: true});
             const title = new St.Label({text: settings.text(key), xExpand: true});
@@ -71,7 +89,7 @@ export const Indicator = GObject.registerClass(class Indicator extends PanelMenu
             title.clutter_text.set_line_alignment(settings.rtl ? Pango.Alignment.RIGHT : Pango.Alignment.LEFT);
             item.add_child(title);
             const value = this._value(field, 'systeminfo-value'); item.add_child(value);
-            item.connect('activate', () => this._copy(`${settings.text(key)}: ${value.text}`));
+            item.connect('activate', () => this._openAnalysis(field.split(':')[0]));
             this._rowItems.push({item, key, value}); this.menu.addMenuItem(item);
         }
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -82,6 +100,10 @@ export const Indicator = GObject.registerClass(class Indicator extends PanelMenu
         retry.connect('activate', () => this._rebuild()); this.menu.addMenuItem(retry);
         const preferences = new PopupMenu.PopupMenuItem(settings.text('settings'));
         preferences.connect('activate', () => this._preferences()); this.menu.addMenuItem(preferences);
+        const website = new PopupMenu.PopupMenuItem(settings.text('website'));
+        website.connect('activate', () => Gio.AppInfo.launch_default_for_uri_async(settings.resource.website, global.create_app_launch_context(0, -1), null,
+            (_, result) => { try { Gio.AppInfo.launch_default_for_uri_finish(result); } catch { this._status.label.text = settings.text('error'); } }));
+        this.menu.addMenuItem(website);
         for (const item of this.menu.box.get_children()) {
             if (item.can_focus) item.connect('key-focus-in', () => this._reveal(item));
         }
@@ -103,6 +125,13 @@ export const Indicator = GObject.registerClass(class Indicator extends PanelMenu
         }
         this._header.style = `background-color: ${c.surface}; color: ${c.accent}; border-radius: ${m.radius}px; padding: ${m.row_padding}px ${m.padding}px;`;
         this._heading.style = `font-size: ${settings.resource.typography[settings.locale].label}px; font-weight: bold;`;
+        this.menu.box.style = `background-color: ${c.surface}; color: ${c.text}; min-width: ${m.min_width}px;`;
+        for (const {button, content, title, value} of this._cellItems) {
+            button.style = `background-color: ${c.raised}; color: ${c.text}; border: ${m.border}px solid ${c.border}; border-radius: ${m.radius}px; padding: ${m.row_padding}px; margin: ${m.small}px;`;
+            content.style = `spacing: ${m.small}px; min-width: ${m.min_width / 2 - 2 * m.padding}px;`;
+            title.style = `font-size: ${settings.resource.typography[settings.locale].label}px; color: ${c.secondary};`;
+            value.style = `font-size: ${settings.resource.typography[settings.locale].card}px; font-weight: bold;`;
+        }
         for (const {item} of this._rowItems) {
             item.set_text_direction(settings.rtl ? Clutter.TextDirection.RTL : Clutter.TextDirection.LTR);
             item.style = `spacing: ${m.padding}px; padding: ${m.small}px ${m.row_padding}px; min-height: ${m.control}px;`;
@@ -154,10 +183,17 @@ export const Indicator = GObject.registerClass(class Indicator extends PanelMenu
         if (!connected) this._apply(null);
     }
     _copy(text) { St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text); }
+    _openAnalysis(metric) {
+        this.menu.close();
+        try {
+            const child = Gio.Subprocess.new(['gjs', '-m', `${this._settings.root}/analysis-window.js`, '--metric', metric], Gio.SubprocessFlags.NONE);
+            child.wait_async(null, (source, result) => { try { source.wait_finish(result); } catch { /* Owned launch is reaped. */ } });
+        } catch { this._status.label.text = this._settings.text('error'); }
+    }
     _teardown() {
         this._client?.stop(); this._client = null;
         this._panel?.destroy(); this._panel = null;
-        this.menu.removeAll(); this._fields.clear(); this._rowItems = [];
+        this.menu.removeAll(); this._fields.clear(); this._rowItems = []; this._cellItems = [];
     }
     _rebuild() { this._teardown(); this._build(); }
     destroy() {

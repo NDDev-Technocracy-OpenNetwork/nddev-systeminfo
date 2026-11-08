@@ -3,8 +3,9 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
 export class Settings {
-    constructor(root) {
+    constructor(root, options = {}) {
         this.root = root;
+        this.options = options;
         const [, metadata] = Gio.File.new_for_path(`${root}/metadata.json`).load_contents(null);
         this._legacySchema = JSON.parse(new TextDecoder().decode(metadata))['settings-schema'];
         const [, bytes] = Gio.File.new_for_path(`${root}/resources/ui.json`).load_contents(null);
@@ -89,11 +90,12 @@ export class Settings {
         return 'saved';
     }
     _run(arguments_) {
-        const executable = GLib.find_program_in_path('nddev-systeminfo') ?? GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', 'nddev-systeminfo']);
+        const executable = this.options.executable ?? GLib.find_program_in_path('nddev-systeminfo') ?? GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', 'nddev-systeminfo']);
+        const prefix = this.options.config ? ['--config', this.options.config] : [];
         return new Promise((resolve, reject) => {
             if (this._closed) { reject(new Error('Settings are closed')); return; }
             let process;
-            try { process = Gio.Subprocess.new([executable, ...arguments_], Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE); }
+            try { process = Gio.Subprocess.new([executable, ...prefix, ...arguments_], Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE); }
             catch (error) { reject(error); return; }
             this._processes.add(process);
             process.communicate_utf8_async(null, this._cancellable, (source, result) => {

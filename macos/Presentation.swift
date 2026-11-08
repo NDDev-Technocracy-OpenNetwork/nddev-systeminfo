@@ -23,7 +23,14 @@ struct UIResource: Decodable, Sendable {
         let brand: Double; let icon: Double; let minWidth: Double; let control: Double; let border: Double
     }
     struct Brand: Decodable, Sendable { let viewBox: [Double]; let paths: [String] }
-    struct Typography: Decodable, Sendable { let body: Double; let label: Double }
+    struct Typography: Decodable, Sendable { let body: Double; let label: Double; let card:Double }
+    struct Series:Decodable,Sendable {let key:String;let label:String;let unit:String}
+    struct Analysis:Decodable,Sendable {let frameBytes:Int;let plotColumns:Int;let historySeconds:Int;let rangesSeconds:[Int];let coresPerPage:Int}
+    struct Cell:Decodable,Sendable {let label:String;let metric:String}
+    let website:String
+    let series:[Series]
+    let analysis:Analysis
+    let cells:[Cell]
     let version: String
     let catalogs: [String: [String: String]]
     let themes: [String: Colors]
