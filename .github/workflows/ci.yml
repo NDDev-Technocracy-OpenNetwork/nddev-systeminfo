@@ -150,7 +150,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y dpkg-dev apt-utils libglib2.0-bin init-system-helpers
+      - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y dpkg-dev apt-utils libglib2.0-bin init-system-helpers dbus-user-session
       - run: cargo run --locked --package systeminfo-tools -- deb-test
       - name: Real signed APT installation with a disposable key
         run: cargo run --locked --package systeminfo-tools -- apt-fixture

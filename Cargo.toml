@@ -3,7 +3,7 @@ members = ["crates/contract", "crates/native", "daemon", "tools"]
 resolver = "3"
 
 [workspace.package]
-version = "0.3.3"
+version = "0.3.4"
 edition = "2024"
 rust-version = "1.99.1"
 license = "Apache-2.0"
@@ -20,9 +20,9 @@ tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "registry"] }
 sha2 = "=0.11.1"
 nddev-opennetwork-design-tokens = { version = "=0.0.1-alpha.9", git = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-opennetwork-design-system", rev = "dbdf11b27fc6245b7942ad3e271f171602fce931" }
-nddev-systeminfo-contract = { path = "crates/contract", version = "=0.3.3" }
-nddev-systeminfo-native = { path = "crates/native", version = "=0.3.3", default-features = false }
-nddev-systeminfo = { path = "daemon", version = "=0.3.3", default-features = false }
+nddev-systeminfo-contract = { path = "crates/contract", version = "=0.3.4" }
+nddev-systeminfo-native = { path = "crates/native", version = "=0.3.4", default-features = false }
+nddev-systeminfo = { path = "daemon", version = "=0.3.4", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

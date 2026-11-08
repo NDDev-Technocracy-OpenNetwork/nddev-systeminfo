@@ -43,6 +43,9 @@ checks preservation, enables and samples the real provider, applies settings
 and invokes uninstall from the installed CLI. Uninstall preserves user TOML.
 Debian tests run native maintainer helpers in an isolated `DPKG_ROOT`, then
 install both real packages and exercise disabled upgrades and purge on Ubuntu.
+Two actual user managers qualify independent restart admission: an enabled
+account precedes a masked account, and the package must preserve both states.
+Successful qualification explicitly removes its temporary users and managers.
 
 The [delivery contract](delivery.md) reuses qualified artifacts through stable
 promotion and checks their downloaded release bytes before signed APT
