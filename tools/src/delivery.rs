@@ -110,6 +110,31 @@ impl Github {
         }
         Err("GitHub collection exceeds the release metadata bound".into())
     }
+    fn release(&self, tag: &str) -> Result<Option<Value>> {
+        if let Some(release) = self.optional(&format!("releases/tags/{tag}"))? {
+            return Ok(Some(release));
+        }
+        // The tag endpoint finds published releases. Authenticated listing also
+        // includes drafts with a pending tag, needed after interrupted uploads.
+        for page in 1..=100 {
+            let releases = self.api("GET", &format!("releases?per_page=100&page={page}"), None)?;
+            let releases = releases.as_array().ok_or("release collection missing")?;
+            let matches: Vec<_> = releases
+                .iter()
+                .filter(|release| release["tag_name"] == tag)
+                .collect();
+            if matches.len() > 1 {
+                return Err("release tag is ambiguous".into());
+            }
+            if let Some(release) = matches.first() {
+                return Ok(Some((*release).clone()));
+            }
+            if releases.len() < 100 {
+                return Ok(None);
+            }
+        }
+        Err("release collection exceeds its metadata bound".into())
+    }
     fn download(&self, path: &str, destination: &Path) -> Result {
         let output = Command::new("gh")
             .args([
@@ -350,6 +375,14 @@ pub(super) fn publish() -> Result {
     {
         return Err("published version belongs to another immutable commit".into());
     }
+    let existing_release = github.release(&tag)?;
+    if existing_tag.is_none()
+        && existing_release
+            .as_ref()
+            .is_some_and(|release| release["draft"] != true)
+    {
+        return Err("a published release has lost its immutable tag; it must not be recreated from another qualification".into());
+    }
     let directory = Path::new(".tools/delivery").join(run_id.to_string());
     if directory.exists() {
         fs::remove_dir_all(&directory)?;
@@ -489,7 +522,7 @@ pub(super) fn publish() -> Result {
             Some(json!({"ref":format!("refs/tags/{tag}"),"sha":object["sha"]})),
         )?;
     }
-    let release = if let Some(release) = github.optional(&format!("releases/tags/{tag}"))? {
+    let release = if let Some(release) = existing_release {
         release
     } else {
         github.api("POST", "releases", Some(json!({"tag_name":tag,"target_commitish":commit,"name":format!("NDDev Systeminfo {version}"),"body":release_notes(&source_file(&commit,"CHANGELOG.md")?, &version)?,"draft":true,"prerelease":false})))?
@@ -530,6 +563,9 @@ pub(super) fn publish() -> Result {
             }
             github.api("DELETE", &format!("releases/assets/{}", asset["id"]), None)?;
         }
+        if github.api("GET", &format!("releases/{release_id}"), None)?["draft"] != true {
+            return Err("immutable published release is missing a qualified asset".into());
+        }
         command(
             "gh",
             &[
@@ -564,11 +600,30 @@ pub(super) fn publish() -> Result {
             return Err("uploaded release bytes differ from qualification".into());
         }
     }
-    github.api(
-        "PATCH",
-        &format!("releases/{release_id}"),
-        Some(json!({"draft":false,"make_latest":if recovering_previous {"false"} else {"true"}})),
+    let assets = github.api(
+        "GET",
+        &format!("releases/{release_id}/assets?per_page=100"),
+        None,
     )?;
+    let assets = assets.as_array().ok_or("final release asset set missing")?;
+    if assets.len() != payload.len()
+        || assets.iter().any(|asset| {
+            asset["name"]
+                .as_str()
+                .is_none_or(|name| !payload.contains_key(name))
+        })
+    {
+        return Err("release contains assets outside its qualified distribution".into());
+    }
+    if release["draft"] == true {
+        github.api(
+            "PATCH",
+            &format!("releases/{release_id}"),
+            Some(
+                json!({"draft":false,"make_latest":if recovering_previous {"false"} else {"true"}}),
+            ),
+        )?;
+    }
     let latest = github.api("GET", "releases/latest", None)?["tag_name"] == tag;
     let output = std::env::var_os("GITHUB_OUTPUT").ok_or("delivery output missing")?;
     writeln!(
