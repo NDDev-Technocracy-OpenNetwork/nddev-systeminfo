@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.2 — 2026-11-08
+## 0.3.3 — 2026-11-08
 
 - Publish the independent NDDev Systeminfo product in OpenNetwork, preserving
   repository history, historical releases and the local v1 consumer contract.
@@ -17,6 +17,15 @@
   and disabled state, plus canonical and transitional Debian packages.
 - Qualify actual interfaces, native startup managers, CLI and NDS adapter use.
   Publish qualified artifacts with provenance and byte verification, then sign APT.
+- Use each GitHub binary endpoint's required media type when downloading CI
+  archives and release assets.
+
+## 0.3.2 — unpublished, 2026-11-08
+
+Native qualification passed at `a12da58e52a989a451ae0fbb3a8622044e08da37`.
+Publication stopped before promotion or tag creation because the CI archive
+endpoint rejected a release-asset media type. The version remains reserved;
+the corrected publisher and standalone distribution ship as 0.3.3.
 
 ## 0.3.1 — 2026-10-07
 
