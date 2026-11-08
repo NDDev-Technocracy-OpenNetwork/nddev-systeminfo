@@ -3,9 +3,6 @@
 use super::mach::Host;
 use libc::{c_int, c_uint};
 use std::io;
-use std::mem;
-
-const HOST_CPU_LOAD_INFO: c_int = 3;
 const CPU_STATE_MAX: usize = 4;
 const CPU_STATE_IDLE: usize = 2;
 
@@ -13,10 +10,6 @@ const CPU_STATE_IDLE: usize = 2;
 #[derive(Clone, Copy, Default)]
 struct HostCpuLoadInfo {
     ticks: [u32; CPU_STATE_MAX],
-}
-
-unsafe extern "C" {
-    fn host_statistics(host: c_uint, flavor: c_int, info: *mut c_int, count: *mut c_uint) -> c_int;
 }
 
 pub(super) struct Cpu {
@@ -57,20 +50,63 @@ fn differences(current: HostCpuLoadInfo, previous: HostCpuLoadInfo) -> [u64; CPU
 }
 
 fn read_ticks(host: c_uint) -> io::Result<HostCpuLoadInfo> {
-    let mut info = HostCpuLoadInfo::default();
-    let mut count = (mem::size_of::<HostCpuLoadInfo>() / mem::size_of::<c_int>()) as c_uint;
+    let mut processors: c_uint = 0;
+    let mut pointer: *mut c_int = std::ptr::null_mut();
+    let mut count: c_uint = 0;
+    // Unlike host_statistics, this per-processor API is not cached for a
+    // second. The 500 ms protocol cadence therefore measures distinct ticks.
+    // SAFETY: live host send right and initialized, correctly typed outputs.
     let result = unsafe {
-        host_statistics(
+        libc::host_processor_info(
             host,
-            HOST_CPU_LOAD_INFO,
-            (&mut info as *mut HostCpuLoadInfo).cast(),
+            libc::PROCESSOR_CPU_LOAD_INFO,
+            &mut processors,
+            &mut pointer,
             &mut count,
         )
     };
     if result != 0 {
         return Err(io::Error::other(format!(
-            "host_statistics failed: {result}"
+            "host_processor_info failed: {result}"
         )));
+    }
+    struct Array {
+        pointer: *mut c_int,
+        count: usize,
+    }
+    impl Drop for Array {
+        fn drop(&mut self) {
+            // SAFETY: the successful Mach call transfers this VM allocation
+            // to the caller. Release it exactly once, including validation errors.
+            if !self.pointer.is_null() {
+                unsafe {
+                    libc::vm_deallocate(
+                        libc::mach_task_self(),
+                        self.pointer as _,
+                        (self.count * std::mem::size_of::<c_int>()) as _,
+                    )
+                };
+            }
+        }
+    }
+    let array = Array {
+        pointer,
+        count: count as usize,
+    };
+    if pointer.is_null()
+        || processors == 0
+        || processors.checked_mul(CPU_STATE_MAX as u32) != Some(count)
+    {
+        return Err(io::Error::other("invalid processor counter array"));
+    }
+    // SAFETY: Mach returned count initialized integer entries and their owner
+    // stays alive until this slice is no longer used.
+    let entries = unsafe { std::slice::from_raw_parts(array.pointer, array.count) };
+    let mut info = HostCpuLoadInfo::default();
+    for core in entries.chunks_exact(CPU_STATE_MAX) {
+        for (total, ticks) in info.ticks.iter_mut().zip(core) {
+            *total = total.wrapping_add(*ticks as u32);
+        }
     }
     Ok(info)
 }
@@ -78,6 +114,14 @@ fn read_ticks(host: c_uint) -> io::Result<HostCpuLoadInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_processor_arrays_can_be_read_and_released_repeatedly() {
+        let host = Host::new();
+        for _ in 0..16 {
+            assert!(read_ticks(host.0).is_ok());
+        }
+    }
 
     #[test]
     fn wrapping_a_32_bit_mach_counter_preserves_load() {

@@ -241,12 +241,13 @@ mod tests {
     }
     #[test]
     fn missing_unknown_and_unbounded_settings_are_rejected() {
+        let source = DEFAULT_TOML.replace("\r\n", "\n");
         for text in [
             String::new(),
-            DEFAULT_TOML.replace("gpu = false", "gpu = false\nunknown = 1"),
-            DEFAULT_TOML.replace("max_clients = 32", "max_clients = 0"),
-            DEFAULT_TOML.replace("interval_seconds = 5", "interval_seconds = 61"),
-            DEFAULT_TOML.replace("gpu = false\n", ""),
+            source.replace("gpu = false", "gpu = false\nunknown = 1"),
+            source.replace("max_clients = 32", "max_clients = 0"),
+            source.replace("interval_seconds = 5", "interval_seconds = 61"),
+            source.replace("gpu = false\n", ""),
         ] {
             assert!(Config::parse(&text).is_err());
         }

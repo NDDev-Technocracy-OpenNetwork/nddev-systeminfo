@@ -27,6 +27,7 @@ jobs:
       - run: ./scripts/check-extension.sh
       - run: cargo test --all-features --locked --manifest-path daemon/Cargo.toml
       - run: cargo build --release --all-features --locked --manifest-path daemon/Cargo.toml
+      - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y dpkg-dev
       - name: Package Linux
         shell: bash
         run: |
@@ -35,6 +36,7 @@ jobs:
           install -m755 target/release/nddev-systeminfod dist/stage/rldyour-sysinfod
           install -m644 daemon/systemd/* dist/stage/systemd/
           install -m644 LICENSE CHANGELOG.md THIRD_PARTY_NOTICES.md dist/stage/
+          ./scripts/build-deb.sh target/release/nddev-systeminfod dist
           tar -czf "dist/rldyour-sysinfo-${version}-x86_64-linux.tar.gz" -C dist/stage .
           cp -r extension dist/extension
           rm -rf dist/extension/tests
