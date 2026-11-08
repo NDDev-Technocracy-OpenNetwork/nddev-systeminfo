@@ -36,10 +36,10 @@ impl MetricsSource for WindowsCollector {
     }
     fn new(gpu: bool) -> io::Result<Self> {
         Ok(Self {
-            cpu: Cpu::new(),
-            memory: Memory::new(),
-            disk: Disk::new(),
-            network: Network::new(),
+            cpu: Cpu::new()?,
+            memory: Memory::new()?,
+            disk: Disk::new()?,
+            network: Network::new()?,
             gpu: Gpu::new(gpu),
             temperatures: Temperatures::new(),
         })

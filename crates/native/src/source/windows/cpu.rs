@@ -1,6 +1,7 @@
 //! Windows aggregate CPU load from system counters.
 
 use crate::proto::analysis::Core;
+use std::io;
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
 
 pub(super) struct Cpu {
@@ -10,14 +11,15 @@ pub(super) struct Cpu {
 }
 
 impl Cpu {
-    pub(super) fn new() -> Self {
-        Self {
+    pub(super) fn new() -> io::Result<Self> {
+        Ok(Self {
             system: System::new_with_specifics(
-                RefreshKind::nothing().with_cpu(CpuRefreshKind::nothing().with_usage()),
-            ),
+                RefreshKind::nothing().with_cpu(CpuRefreshKind::nothing().with_cpu_usage()),
+            )
+            .map_err(io::Error::other)?,
             primed: false,
             cores: Vec::new(),
-        }
+        })
     }
 
     /// Busy share of all cores since the previous call, in percent.

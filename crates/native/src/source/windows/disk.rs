@@ -1,6 +1,7 @@
 //! Windows storage throughput from per-volume performance counters.
 
 use crate::source::counters::Counter;
+use std::io;
 use std::{collections::BTreeMap, path::PathBuf, time::Instant};
 use sysinfo::Disks;
 
@@ -15,11 +16,11 @@ pub(super) struct Throughput {
 }
 
 impl Disk {
-    pub(super) fn new() -> Self {
-        Self {
-            disks: Disks::new_with_refreshed_list(),
+    pub(super) fn new() -> io::Result<Self> {
+        Ok(Self {
+            disks: Disks::new_with_refreshed_list().map_err(io::Error::other)?,
             counters: BTreeMap::new(),
-        }
+        })
     }
 
     /// Bytes read and written per second summed across every volume.

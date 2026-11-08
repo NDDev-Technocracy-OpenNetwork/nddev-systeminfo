@@ -6,6 +6,7 @@
 //! hypervisors and VPN clients create.
 
 use crate::source::counters::Counter;
+use std::io;
 use std::{collections::BTreeMap, time::Instant};
 use sysinfo::Networks;
 
@@ -41,11 +42,11 @@ pub(super) struct Throughput {
 }
 
 impl Network {
-    pub(super) fn new() -> Self {
-        Self {
-            networks: Networks::new_with_refreshed_list(),
+    pub(super) fn new() -> io::Result<Self> {
+        Ok(Self {
+            networks: Networks::new_with_refreshed_list().map_err(io::Error::other)?,
             counters: BTreeMap::new(),
-        }
+        })
     }
 
     /// Bytes received and transmitted per second across physical interfaces.
