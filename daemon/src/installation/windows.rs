@@ -43,9 +43,13 @@ fn register_maintenance(directory: &Path) -> Result {
     fs::create_dir_all(log.parent().unwrap())?;
     let status = command.arg("/L*v").arg(&log).status()?;
     if !status.success() {
-        return Err(InstallError::Invalid(
-            "Windows Installer registration failed; inspect logs/maintenance-install.log",
-        ));
+        return Err(InstallError::Operation {
+            operation: "register the per-user Windows Installer package",
+            source: std::io::Error::other(format!(
+                "msiexec exited {status}; inspect {}",
+                log.display()
+            )),
+        });
     }
     Ok(())
 }

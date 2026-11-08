@@ -56,6 +56,29 @@ pub(super) fn run() -> Result {
         }
         let output = child.wait_with_output()?;
         if !output.status.success() {
+            #[cfg(target_os = "windows")]
+            if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+                for name in ["maintenance-install.log", "maintenance-uninstall.log"] {
+                    let log = PathBuf::from(&local)
+                        .join("nddev-systeminfo/logs")
+                        .join(name);
+                    if let Ok(bytes) = fs::read(log) {
+                        let log = if bytes.starts_with(&[0xff, 0xfe]) {
+                            String::from_utf16_lossy(
+                                &bytes[2..]
+                                    .as_chunks::<2>()
+                                    .0
+                                    .iter()
+                                    .map(|bytes| u16::from_le_bytes(*bytes))
+                                    .collect::<Vec<_>>(),
+                            )
+                        } else {
+                            String::from_utf8_lossy(&bytes).into_owned()
+                        };
+                        eprintln!("{name}:\n{log}");
+                    }
+                }
+            }
             if arguments == ["uninstall"] {
                 eprintln!(
                     "uninstall executable remaining={}, readonly={:?}",
