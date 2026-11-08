@@ -505,6 +505,10 @@ impl Surface {
                         Row::Choice { selected, .. } => {
                             MoveWindow(control.handle, padding, y, width, choice_height, 1);
                             SendMessageW(control.handle, 0x014e, *selected, 0);
+                            // CB_SETCURSEL can ask for synchronous owner drawing
+                            // while layout holds the Surface borrow. Queue paint
+                            // after it returns; the parent clips child rectangles.
+                            InvalidateRect(control.handle, null(), 0);
                         }
                         Row::Text(text) => {
                             MoveWindow(control.handle, padding, y, width, height, 1);
