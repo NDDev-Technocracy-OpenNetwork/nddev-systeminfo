@@ -81,7 +81,7 @@ fn read_ticks(host: c_uint) -> io::Result<HostCpuLoadInfo> {
             if !self.pointer.is_null() {
                 unsafe {
                     libc::vm_deallocate(
-                        libc::mach_task_self(),
+                        super::mach::task_port(),
                         self.pointer as _,
                         (self.count * std::mem::size_of::<c_int>()) as _,
                     )
@@ -103,7 +103,7 @@ fn read_ticks(host: c_uint) -> io::Result<HostCpuLoadInfo> {
     // stays alive until this slice is no longer used.
     let entries = unsafe { std::slice::from_raw_parts(array.pointer, array.count) };
     let mut info = HostCpuLoadInfo::default();
-    for core in entries.chunks_exact(CPU_STATE_MAX) {
+    for core in entries.as_chunks::<CPU_STATE_MAX>().0 {
         for (total, ticks) in info.ticks.iter_mut().zip(core) {
             *total = total.wrapping_add(*ticks as u32);
         }
