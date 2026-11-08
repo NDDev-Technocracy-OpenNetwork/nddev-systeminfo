@@ -235,16 +235,6 @@ pub(super) fn session() -> Result {
             "false",
         ],
     )?;
-    // Only this disposable compositor: it has no login/display manager.
-    command(
-        "gsettings",
-        &[
-            "set",
-            "org.gnome.desktop.screensaver",
-            "lock-enabled",
-            "false",
-        ],
-    )?;
     let mut provider = Process(
         Command::new("nddev-systeminfod")
             .stdout(fs::File::create(artifacts.join("provider.jsonl"))?)

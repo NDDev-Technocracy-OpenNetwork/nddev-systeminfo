@@ -104,7 +104,7 @@ enum MetricFormat {
         value.map { String(format: "%.0f°C", $0) } ?? absent
     }
     static func rate(_ value: UInt64?) -> String {
-        binary(value.map(Double.init), rate: true)
+        binary(value.map { Double($0) }, rate: true)
     }
     static func bytes(_ value: Double?) -> String { binary(value, rate: false) }
     private static func binary(_ value: Double?, rate: Bool) -> String {
