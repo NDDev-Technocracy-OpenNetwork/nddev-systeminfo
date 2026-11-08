@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.7 — 2026-11-09
+
+- Retry launchd's transient bootstrap exit 5 with bounded backoff after active
+  upgrades. Other failures still stop installation with the operation and label.
+- Qualify four actual active macOS upgrades, including both product jobs and
+  real local sampling, alongside disabled-state and preference preservation.
+
 ## 0.3.6 — 2026-11-09
 
 - Add passive per-adapter GPU details and logical-core CPU readings on Linux,

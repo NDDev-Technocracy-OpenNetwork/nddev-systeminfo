@@ -50,17 +50,29 @@ fn agent(name: &str) -> Result<PathBuf> {
         .join(format!("{name}.plist")))
 }
 fn bootstrap(domain: &str, name: &str) -> Result {
-    ctl(
-        &[
-            "bootstrap",
-            domain,
-            agent(name)?
-                .to_str()
-                .ok_or(InstallError::Invalid("agent path is not Unicode"))?,
-        ],
-        true,
-    )
-    .map(|_| ())
+    let path = agent(name)?;
+    let path = path
+        .to_str()
+        .ok_or(InstallError::Invalid("agent path is not Unicode"))?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut delay = Duration::from_millis(25);
+    loop {
+        let output = ctl(&["bootstrap", domain, path], false)?;
+        if output.status.success() {
+            return Ok(());
+        }
+        // bootout can return before launchd has removed the old registration.
+        // EIO is generic: retry only this bounded transition, never unload an
+        // unexpected job, change enablement or start an unmanaged substitute.
+        if output.status.code() != Some(5) || Instant::now() >= deadline {
+            return Err(InstallError::Manager(format!(
+                "launchctl bootstrap {name} exited {}",
+                output.status
+            )));
+        }
+        thread::sleep(delay.min(deadline.saturating_duration_since(Instant::now())));
+        delay = (delay * 2).min(Duration::from_millis(500));
+    }
 }
 fn xml(value: &str) -> String {
     value

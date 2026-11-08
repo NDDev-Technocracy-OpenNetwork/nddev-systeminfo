@@ -41,6 +41,9 @@ Installation acceptance runs only on disposable CI accounts. It installs the
 native package, changes zero/false settings, disables the provider, reinstalls,
 checks preservation, enables and samples the real provider, applies settings
 and invokes uninstall from the installed CLI. Uninstall preserves user TOML.
+Mac installation additionally repeats four active upgrades and confirms that
+the provider remains loaded and the native UI is actually running. Bounded
+bootstrap backoff covers launchd's asynchronous removal transition.
 Debian tests run native maintainer helpers in an isolated `DPKG_ROOT`, then
 install both real packages and exercise disabled upgrades and purge on Ubuntu.
 Two actual user managers qualify independent restart admission: an enabled
