@@ -49,8 +49,9 @@ Linux requires a systemd user manager; the desktop interface targets GNOME 46–
 macOS requires 12 or later and supports Apple silicon and Intel. macOS archives
 carry an ad-hoc signature; Developer ID signing and notarization are not configured.
 Windows releases target x64 Windows 10/11, with the C runtime linked statically.
-Native socket and immediate self-uninstall support require a local filesystem
-supporting the corresponding Windows operations.
+Windows registers a per-user maintenance package with Windows Installer; removal
+can also be started from Installed apps. Its CLI hands removal to the OS and
+exits before the cached cleanup action deletes the installed executables.
 
 To remove the user installation, run its CLI:
 
@@ -67,6 +68,14 @@ The signed repository is
 `https://nddev-technocracy-opennetwork.github.io/nddev-systeminfo/apt`.
 After installing its public key in `/usr/share/keyrings/rldyour-sysinfo.asc`, add:
 
+```console
+curl --fail --location https://nddev-technocracy-opennetwork.github.io/nddev-systeminfo/apt/rldyour-sysinfo.asc --output rldyour-sysinfo.asc
+gpg --show-keys --fingerprint rldyour-sysinfo.asc
+sudo install -m 644 rldyour-sysinfo.asc /usr/share/keyrings/rldyour-sysinfo.asc
+```
+
+The public key fingerprint is `3962 D52A 20C4 C41E 1F0F 79F7 1921 782F 1736 B4DF`.
+
 ```text
 deb [arch=amd64 signed-by=/usr/share/keyrings/rldyour-sysinfo.asc] https://nddev-technocracy-opennetwork.github.io/nddev-systeminfo/apt stable main
 ```
@@ -74,7 +83,8 @@ deb [arch=amd64 signed-by=/usr/share/keyrings/rldyour-sysinfo.asc] https://nddev
 Install `nddev-systeminfo` through APT. Existing `rldyour-sysinfo` installations
 upgrade through a transitional package. APT owns the system installation;
 the portable installer owns a user installation. Select one provider owner.
-The public key, repository label and user-unit identities preserve the existing
+The portable installer refuses an existing system package or foreign service
+owner. The public key, repository label and user-unit identities preserve the existing
 APT and socket trust state during the product rename.
 
 ## Configure and use

@@ -46,7 +46,7 @@ pub(super) fn install(source: &Path, manifest: &Manifest, provider_only: bool) -
         && fs::read_link(units.join(SERVICE))? == Path::new("/dev/null");
     let fragment = manager(
         &["show", SERVICE, "--property=FragmentPath", "--value"],
-        true,
+        false,
     )?;
     let fragment = String::from_utf8_lossy(&fragment.stdout);
     let fragment = fragment.trim();
