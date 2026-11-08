@@ -171,6 +171,33 @@ pub(super) fn build(root: &Path, version: &str) -> Result {
         "uninstall --windows-maintenance [SYSTEMINFO_UNINSTALL_PID]".into(),
     ]))?;
     package.create_table(
+        "Media",
+        vec![
+            Column::build("DiskId").primary_key().int16(),
+            Column::build("LastSequence").int16(),
+            Column::build("DiskPrompt")
+                .nullable()
+                .localizable()
+                .string(64),
+            Column::build("Cabinet").nullable().string(255),
+            Column::build("VolumeLabel").nullable().string(32),
+            Column::build("Source").nullable().string(72),
+        ],
+    )?;
+    package.create_table(
+        "File",
+        vec![
+            Column::build("File").primary_key().id_string(72),
+            Column::build("Component_").id_string(72),
+            Column::build("FileName").localizable().string(255),
+            Column::build("FileSize").int32(),
+            Column::build("Version").nullable().string(72),
+            Column::build("Language").nullable().string(20),
+            Column::build("Attributes").nullable().int16(),
+            Column::build("Sequence").int16(),
+        ],
+    )?;
+    package.create_table(
         "InstallExecuteSequence",
         vec![
             Column::build("Action").primary_key().id_string(72),
@@ -226,6 +253,19 @@ pub(super) fn build(root: &Path, version: &str) -> Result {
             &mut output.create_stream(&stream)?,
         )?;
     }
+    package.create_table(
+        "InstallUISequence",
+        vec![
+            Column::build("Action").primary_key().id_string(72),
+            Column::build("Condition").nullable().string(255),
+            Column::build("Sequence").int16(),
+        ],
+    )?;
+    package.insert_rows(Insert::into("InstallUISequence").row(vec![
+        "ExecuteAction".into(),
+        Value::Null,
+        1300.into(),
+    ]))?;
     output.flush()?;
     Ok(())
 }
