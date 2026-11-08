@@ -39,14 +39,14 @@ jobs:
         with:
           ecosystems: cargo
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-      - name: Real Windows menu acceptance
-        if: runner.os == 'Windows'
-        run: cargo run --locked --package systeminfo-tools -- ui-windows
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libglib2.0-bin
       - name: Native installation lifecycle
         timeout-minutes: 4
         run: cargo run --locked --package systeminfo-tools -- install-test
+      - name: Real Windows menu acceptance
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
+        run: cargo run --locked --package systeminfo-tools -- ui-windows
       - run: cargo run --locked --package systeminfo-tools -- setup
         env:
           GH_TOKEN: ${{ github.token }}

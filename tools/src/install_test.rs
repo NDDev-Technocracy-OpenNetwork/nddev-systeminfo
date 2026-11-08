@@ -56,6 +56,16 @@ pub(super) fn run() -> Result {
         }
         let output = child.wait_with_output()?;
         if !output.status.success() {
+            if arguments == ["uninstall"] {
+                eprintln!(
+                    "uninstall executable remaining={}, readonly={:?}",
+                    executable.exists(),
+                    executable
+                        .metadata()
+                        .ok()
+                        .map(|data| data.permissions().readonly())
+                );
+            }
             return Err(format!(
                 "native command failed: {arguments:?}, {}",
                 String::from_utf8_lossy(&output.stderr)
