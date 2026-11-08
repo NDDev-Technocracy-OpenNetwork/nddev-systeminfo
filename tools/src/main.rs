@@ -798,6 +798,8 @@ fn run() -> Result {
         Some("apt-build") => apt::build(),
         #[cfg(target_os = "linux")]
         Some("apt-test") => apt::test(),
+        #[cfg(target_os = "linux")]
+        Some("apt-fixture") => apt::fixture(),
         Some("prepare-delivery") => {
             fs::create_dir_all(".tools/bin")?;
             fs::copy(std::env::current_exe()?, binary("systeminfo-delivery"))?;

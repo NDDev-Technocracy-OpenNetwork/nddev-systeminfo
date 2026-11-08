@@ -50,9 +50,16 @@ impl Drop for Keyring {
     }
 }
 pub(super) fn build() -> Result {
+    build_at(
+        Path::new("site/apt"),
+        Path::new("released"),
+        &Path::new("packaging/apt").join(configuration()?.key),
+        std::env::var("APT_SIGNING_KEY")?.as_bytes(),
+    )
+}
+fn build_at(root: &Path, packages: &Path, public_key: &Path, secret: &[u8]) -> Result {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     let config = configuration()?;
-    let root = Path::new("site/apt");
     let pool = root.join(format!("pool/main/n/{}", config.package));
     let stable = root.join("dists").join(&config.suite);
     let indexes = stable
@@ -60,7 +67,7 @@ pub(super) fn build() -> Result {
         .join(format!("binary-{}", config.architecture));
     fs::create_dir_all(&pool)?;
     fs::create_dir_all(&indexes)?;
-    let packages: Vec<_> = files(Path::new("released"))?
+    let packages: Vec<_> = files(packages)?
         .into_iter()
         .filter(|file| file.extension().is_some_and(|extension| extension == "deb"))
         .collect();
@@ -108,7 +115,6 @@ pub(super) fn build() -> Result {
             .args(["--batch", "--yes"]);
         command
     };
-    let secret = std::env::var("APT_SIGNING_KEY")?;
     let mut import = gpg()
         .arg("--import")
         .stdin(Stdio::piped())
@@ -118,7 +124,7 @@ pub(super) fn build() -> Result {
         .stdin
         .take()
         .ok_or("signing input missing")?
-        .write_all(secret.as_bytes())?;
+        .write_all(secret)?;
     if !import.wait()?.success() {
         return Err("APT signing key import failed".into());
     }
@@ -134,10 +140,7 @@ pub(super) fn build() -> Result {
             .arg(stable.join("Release"));
         status(sign)?;
     }
-    fs::copy(
-        Path::new("packaging/apt").join(&config.key),
-        root.join(&config.key),
-    )?;
+    fs::copy(public_key, root.join(&config.key))?;
     // Only public repository data enters Pages. The sandboxed _apt downloader
     // must be able to traverse and read both plain and compressed indexes.
     fn permissions(path: &Path) -> Result {
@@ -152,22 +155,32 @@ pub(super) fn build() -> Result {
         }
         Ok(())
     }
-    permissions(Path::new("site"))?;
+    permissions(root)?;
     Ok(())
 }
 pub(super) fn test() -> Result {
+    test_at(
+        Path::new("site/apt"),
+        &Path::new("packaging/apt").join(configuration()?.key),
+    )
+}
+fn disposable() -> Result {
     if std::env::var("GITHUB_ACTIONS").as_deref() != Ok("true")
         || std::env::var_os("RUNNER_TEMP").is_none()
     {
         return Err("APT installation acceptance requires a disposable runner".into());
     }
+    Ok(())
+}
+fn test_at(root: &Path, public_key: &Path) -> Result {
+    disposable()?;
     let config = configuration()?;
     command(
         "sudo",
         &[
             "install",
             "-m644",
-            &format!("packaging/apt/{}", config.key),
+            public_key.to_str().ok_or("public key path must be UTF-8")?,
             &format!("/usr/share/keyrings/{}", config.key),
         ],
     )?;
@@ -175,10 +188,10 @@ pub(super) fn test() -> Result {
     fs::write(
         source,
         format!(
-            "deb [arch={} signed-by=/usr/share/keyrings/{}] file:{}/site/apt {} {}\n",
+            "deb [arch={} signed-by=/usr/share/keyrings/{}] file:{} {} {}\n",
             config.architecture,
             config.key,
-            std::env::current_dir()?.display(),
+            fs::canonicalize(root)?.display(),
             config.suite,
             config.component
         ),
@@ -216,5 +229,53 @@ pub(super) fn test() -> Result {
         "systemctl",
         &["--global", "is-enabled", "rldyour-sysinfod.socket"],
     )?;
+    Ok(())
+}
+
+/// Exercise actual signing and APT installation before a release has access
+/// to the real signing key. This throwaway identity never enters a distribution.
+pub(super) fn fixture() -> Result {
+    use std::os::unix::fs::DirBuilderExt;
+    disposable()?;
+    let directory =
+        std::env::current_dir()?.join(format!(".tools/apt-fixture-{}", std::process::id()));
+    fs::create_dir(&directory)?;
+    let keys = Keyring(directory.join("keys"));
+    fs::DirBuilder::new().mode(0o700).create(&keys.0)?;
+    let gpg = || {
+        let mut command = Command::new("gpg");
+        command.env("GNUPGHOME", &keys.0).args([
+            "--batch",
+            "--yes",
+            "--pinentry-mode",
+            "loopback",
+            "--passphrase",
+            "",
+        ]);
+        command
+    };
+    let mut generate = gpg();
+    generate.args([
+        "--quick-generate-key",
+        "NDDev Systeminfo acceptance",
+        "ed25519",
+        "sign",
+        "1d",
+    ]);
+    status(generate)?;
+    let public = directory.join("fixture.asc");
+    let mut export = gpg();
+    export.args(["--armor", "--export"]);
+    output(export, &public)?;
+    let secret = gpg().args(["--armor", "--export-secret-keys"]).output()?;
+    if !secret.status.success() {
+        return Err("throwaway APT signer could not be exported".into());
+    }
+    let repository = directory.join("apt");
+    build_at(&repository, Path::new("dist"), &public, &secret.stdout)?;
+    test_at(&repository, &public)?;
+    drop(keys);
+    fs::remove_dir_all(directory)?;
+    println!("PASS: real throwaway GPG signing, authenticated APT indexes and installed packages");
     Ok(())
 }
