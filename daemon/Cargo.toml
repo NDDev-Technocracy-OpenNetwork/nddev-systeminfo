@@ -37,8 +37,5 @@ sha2.workspace = true
 default = ["nvidia"]
 nvidia = ["nddev-systeminfo-native/nvidia"]
 
-[dev-dependencies]
-nddev-systeminfo-native = { workspace = true, features = ["ui-acceptance"] }
-
 [lints]
 workspace = true

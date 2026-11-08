@@ -15,5 +15,8 @@ toml.workspace = true
 nddev-opennetwork-design-tokens.workspace = true
 nddev-systeminfo.workspace = true
 
+[target.'cfg(target_os = "windows")'.dependencies]
+nddev-systeminfo-native = { workspace = true, features = ["ui-acceptance"] }
+
 [lints]
 workspace = true

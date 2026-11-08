@@ -503,6 +503,7 @@ version = "0.3.2"
 dependencies = [
  "nddev-opennetwork-design-tokens",
  "nddev-systeminfo",
+ "nddev-systeminfo-native",
  "serde",
  "serde_json",
  "toml",
