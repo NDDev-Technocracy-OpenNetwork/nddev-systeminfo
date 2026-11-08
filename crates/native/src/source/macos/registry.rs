@@ -164,8 +164,7 @@ impl<const N: usize> Registry<N> {
                             kCFNumberFloat64Type,
                             (&mut number as *mut f64).cast(),
                         )
-                    } != 0
-                        && number.is_finite())
+                    } && number.is_finite())
                     .then_some(Number::Decimal(number))
                 } else {
                     let mut number: i64 = 0;
@@ -175,8 +174,8 @@ impl<const N: usize> Registry<N> {
                             kCFNumberSInt64Type,
                             (&mut number as *mut i64).cast(),
                         )
-                    } != 0)
-                        .then_some(Number::Integer(number))
+                    })
+                    .then_some(Number::Integer(number))
                 }
             });
             read(values);
