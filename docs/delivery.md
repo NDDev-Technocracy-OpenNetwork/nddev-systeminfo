@@ -12,6 +12,11 @@ digest and streams bounded, unique filenames to owned files. It produces
 `provenance.json` and `SHA256SUMS`. Product binaries and packages are never
 rebuilt during promotion.
 
+The publisher executes only from the maintained `dev` branch. A qualified
+revision's version and changelog are read as Git data; workflow inputs never
+choose source code to execute with write permissions. Provenance records both
+the product revision and the publisher revision.
+
 Only after qualification does delivery fast-forward `main` to that exact
 commit, create an annotated version tag and upload a draft release. Each upload
 is downloaded again and compared by SHA-256 before publication. Existing tags

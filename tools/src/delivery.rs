@@ -204,6 +204,11 @@ fn qualified(
 fn full_sha(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|c| c.is_ascii_hexdigit())
 }
+fn source_file(commit: &str, path: &str) -> Result<String> {
+    let output = Command::new("git").arg("show").arg(format!("{commit}:{path}")).output()?;
+    if !output.status.success() { return Err("qualified source data is unavailable".into()); }
+    Ok(String::from_utf8(output.stdout)?)
+}
 fn tag_commit(github: &Github, tag: &Value) -> Result<String> {
     if tag["object"]["type"] != "tag" {
         return Err("release tag must be annotated".into());
@@ -305,8 +310,10 @@ pub(super) fn publish() -> Result {
     let jobs = github.pages(&format!("actions/runs/{run_id}/jobs"), "jobs")?;
     qualified(&run, &jobs, &configuration, &commit, &publisher_prefix()?)?;
     let revision = Command::new("git").args(["rev-parse", "HEAD"]).output()?;
-    if String::from_utf8(revision.stdout)?.trim() != commit {
-        return Err("publisher source differs from qualified source".into());
+    let publisher_commit = String::from_utf8(revision.stdout)?.trim().to_string();
+    let development = github.api("GET", &format!("git/ref/heads/{}", configuration.github.development_branch), None)?;
+    if development["object"]["sha"] != publisher_commit {
+        return Err("publisher must run from the maintained dev branch".into());
     }
     if !Command::new("git")
         .args(["diff", "--quiet", "HEAD", "--"])
@@ -315,7 +322,8 @@ pub(super) fn publish() -> Result {
     {
         return Err("publisher source has uncommitted changes".into());
     }
-    let version = crate::version()?;
+    let manifest: toml::Value = toml::from_str(&source_file(&commit, "Cargo.toml")?)?;
+    let version = manifest["workspace"]["package"]["version"].as_str().ok_or("qualified product version missing")?.to_string();
     if version.split('.').count() != 3 || !version.bytes().all(|c| c.is_ascii_digit() || c == b'.')
     {
         return Err("stable release needs a numeric semantic version".into());
@@ -399,7 +407,7 @@ pub(super) fn publish() -> Result {
     fs::write(
         &provenance,
         serde_json::to_string_pretty(
-            &json!({"format":1,"repository":github.repository,"repository_id":configuration.github.repository_id,"commit":commit,"qualification_run_id":run_id,"artifacts":evidence,"assets":asset_hashes}),
+            &json!({"format":1,"repository":github.repository,"repository_id":configuration.github.repository_id,"commit":commit,"publisher_commit":publisher_commit,"qualification_run_id":run_id,"artifacts":evidence,"assets":asset_hashes}),
         )?,
     )?;
     payload.insert(
@@ -467,7 +475,7 @@ pub(super) fn publish() -> Result {
     let release = if let Some(release) = github.optional(&format!("releases/tags/{tag}"))? {
         release
     } else {
-        github.api("POST", "releases", Some(json!({"tag_name":tag,"target_commitish":commit,"name":format!("NDDev Systeminfo {version}"),"body":release_notes(&fs::read_to_string("CHANGELOG.md")?, &version)?,"draft":true,"prerelease":false})))?
+        github.api("POST", "releases", Some(json!({"tag_name":tag,"target_commitish":commit,"name":format!("NDDev Systeminfo {version}"),"body":release_notes(&source_file(&commit,"CHANGELOG.md")?, &version)?,"draft":true,"prerelease":false})))?
     };
     let release_id = release["id"].as_u64().ok_or("release id missing")?;
     for (name, (path, hash)) in &payload {

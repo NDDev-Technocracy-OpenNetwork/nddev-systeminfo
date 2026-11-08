@@ -70,7 +70,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.resolve.outputs.commit }}
+          # Execute the maintained publisher only from this trusted branch.
+          # The utility reads the qualified product revision as data and never
+          # checks out or executes a workflow input's arbitrary source ref.
+          ref: dev
           fetch-depth: 0
           persist-credentials: false
       - name: Compile the delivery utility without write credentials
