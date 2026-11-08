@@ -24,7 +24,8 @@ The snapshot schema generates the Rust contract and the thin GJS validator.
 Typed TOML and the Rust CLI own active preferences. The GNOME frontend uses
 `config show --json` and `config set`; its filesystem monitor reloads changes
 without polling. Controls wait for validated configuration before appearing.
-An unchanged configuration does not rebuild the interface.
+Metric and appearance edits synchronize existing controls, preserving keyboard
+focus. A language or readiness transition rebuilds the translated page.
 
 The existing extension UUID remains the installation identity. On first use,
 the frontend reads explicit values from its old GSettings schema and imports
@@ -49,6 +50,21 @@ private D-Bus/Wayland session and configuration, exercises migration, locales,
 themes, high contrast, native clipboard, disable/re-enable and disconnection,
 and captures the UI. A temporary process scope owns activated helpers and is
 stopped before cleanup. Runtime evidence in `.tools/ui-linux` stays local.
+
+AppKit uses a status item and native menus on the main actor. Its serial socket
+queue has a bounded frame and cancellable dispatch source. Real ARM and Intel
+acceptance opens menus, checks five locales and four themes, round-trips the
+clipboard and kills the actual provider to verify all twelve cleared readings.
+
+Windows uses a creator-thread-owned notification window, OS menus and a bounded
+latest-value proxy. No WebView or polling repaint timer is resident. File-change
+notifications watch atomic configuration replacement. An open popup updates
+readings in place and disables copying as soon as its provider disconnects.
+Native Up/Enter navigation must produce the actual command callback. The tray
+icon uses a padded opaque OpenNetwork surface so every saved theme remains
+legible against the OS taskbar. High contrast uses the OS symbolic treatment.
+Menu density follows Windows accessibility settings; the shared saved density
+field remains available to GNOME and AppKit.
 
 Resource measurements must use release binaries and the recorded source
 baseline. Budgets and architecture choices are not measurements.

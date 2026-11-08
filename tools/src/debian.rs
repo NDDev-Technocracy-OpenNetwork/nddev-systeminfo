@@ -205,6 +205,16 @@ pub(super) fn test() -> Result {
     )?;
     command("systemctl", &["--global", "is-enabled", SOCKET])?;
     command("/usr/bin/nddev-systeminfo", &["--version"])?;
+    let portable = crate::packaging::package()?;
+    let conflict = Command::new(&binaries["nddev-systeminfo"])
+        .args(["install", "--provider-only", "--source"])
+        .arg(&portable)
+        .output()?;
+    if conflict.status.success()
+        || !String::from_utf8_lossy(&conflict.stderr).contains("a system package owns the provider")
+    {
+        return Err("portable installation did not preserve the system package's ownership".into());
+    }
     command("sudo", &["systemctl", "--global", "disable", SOCKET])?;
     command(
         "sudo",

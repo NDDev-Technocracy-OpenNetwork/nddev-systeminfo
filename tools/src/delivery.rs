@@ -151,7 +151,7 @@ fn configuration() -> Result<(Configuration, Github)> {
 }
 fn publisher_prefix() -> Result<String> {
     let source = fs::read_to_string(".github/workflows/ci.yml")?;
-    let mut lines = source
+    let lines = source
         .lines()
         .skip_while(|line| *line != "  release:")
         .skip(1);
