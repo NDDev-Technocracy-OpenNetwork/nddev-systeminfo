@@ -242,6 +242,7 @@ pub(super) fn session() -> Result {
             .spawn()?,
     );
     fs::write(root.join("provider.pid"), provider.0.id().to_string())?;
+    command("gjs", &["-m", "extension/tests/smoke.js"])?;
     let result_path = artifacts.join("result.json");
     if result_path.exists() {
         fs::remove_file(&result_path)?;

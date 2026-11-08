@@ -162,7 +162,6 @@ jobs:
       - name: Native protocol and async client checks
         run: |
           gjs -m extension/tests/protocol.js
-          (cd extension && gjs -m tests/smoke.js)
           test_runtime="$(mktemp -d)"
           XDG_RUNTIME_DIR="$test_runtime" gjs -m extension/tests/client.js
           rmdir "$test_runtime"

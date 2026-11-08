@@ -200,10 +200,15 @@ pub(super) fn uninstall() -> Result {
     tray::stop_products(&binaries(&directory))?;
     autorun(PROVIDER, None)?;
     autorun(UI, None)?;
-    // The portable CLI outside the installation can remove every version. The
-    // installed CLI runs from a version directory; Windows removal semantics are
-    // qualified on the real OS before this path is shipped.
-    fs::remove_dir_all(root()?.join("versions"))?;
+    let versions = root()?.join("versions");
+    let canonical = fs::canonicalize(&versions)?;
+    if fs::canonicalize(std::env::current_exe()?)?.starts_with(&canonical) {
+        if fs::canonicalize(std::env::current_dir()?)?.starts_with(&canonical) {
+            std::env::set_current_dir(root()?)?;
+        }
+        nddev_systeminfo_native::process::unlink_current_executable()?;
+    }
+    fs::remove_dir_all(versions)?;
     remove_file(&state_dir()?.join("current.txt"))?;
     remove_file(&state_dir()?.join("manifest.toml"))?;
     Ok(())

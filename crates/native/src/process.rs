@@ -56,6 +56,12 @@ unsafe extern "system" {
         options: u32,
     ) -> i32;
     fn CloseHandle(handle: Handle) -> i32;
+    fn SetFileInformationByHandle(
+        file: Handle,
+        class: i32,
+        information: *const c_void,
+        size: u32,
+    ) -> i32;
     fn InitializeProcThreadAttributeList(
         list: *mut c_void,
         count: u32,
@@ -194,6 +200,39 @@ pub fn spawn_background(executable: &Path, directory: &Path, log: &File) -> io::
         // of stdin/log. Closing these references does not terminate the child.
         let (_process, _thread) = (Owned(process.process), Owned(process.thread));
     }
+    Ok(())
+}
+
+/// Unlink only this process's executable using Windows' documented POSIX delete
+/// semantics. Its mapped image remains valid until process exit; no delayed
+/// script, reboot, temporary executable or replacement process is needed.
+pub fn unlink_current_executable() -> io::Result<()> {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    let path = std::env::current_exe()?;
+    let file = std::fs::OpenOptions::new()
+        .access_mode(0x00010000 | 0x80)
+        .share_mode(1 | 2 | 4)
+        .custom_flags(0x00200000)
+        .open(path)?;
+    if file.metadata()?.file_attributes() & 0x400 != 0 {
+        return Err(io::Error::other("installed executable is redirected"));
+    }
+    let flags = 1u32 | 2; // DELETE | POSIX_SEMANTICS; keep mapped image valid.
+    // SAFETY: this owned file handle has DELETE access and names our own image.
+    // FileDispositionInfoEx (21) consumes the four-byte flags synchronously.
+    // Closing the handle unlinks the name; the OS owns the live image mapping.
+    if unsafe {
+        SetFileInformationByHandle(
+            file.as_raw_handle(),
+            21,
+            (&flags as *const u32).cast(),
+            size_of::<u32>() as u32,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    drop(file);
     Ok(())
 }
 #[cfg(test)]

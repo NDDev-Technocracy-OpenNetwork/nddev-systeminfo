@@ -25,8 +25,16 @@ inheritable duplicates and process/thread handles; the rest of the product uses
 one safe function. Native installation acceptance captures CLI output and must
 finish while the background products remain alive.
 
+The installed Windows CLI unlinks its own owned image with documented POSIX
+file-disposition semantics before removing its version directory. The mapped
+image remains valid through process exit. This requires a local filesystem
+supporting that Windows operation; failures remain failures. It introduces no
+cleanup script, helper copy, reboot or temporary process. Real self-uninstall
+acceptance, rather than a source check, qualifies this boundary.
+
 References: [Rust CommandExt](https://doc.rust-lang.org/std/os/windows/process/trait.CommandExt.html),
 [Windows handle inheritance](https://learn.microsoft.com/en-us/windows/win32/procthread/inheritance).
+See [Windows POSIX file disposition](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/2e860264-018a-47b3-8555-565a13b35a45).
 
 ## Presentation options
 
