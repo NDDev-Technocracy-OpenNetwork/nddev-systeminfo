@@ -8,9 +8,9 @@ It works without an NDS installation, account or credentials.
 
 | Platform | Interface | Collection |
 | --- | --- | --- |
-| Linux | GNOME Shell indicator and native preferences | procfs, sysfs, optional NVIDIA NVML |
-| macOS | AppKit menu-bar application | Mach, BSD, read-only IOKit/SMC/HID |
-| Windows | Native notification icon and menu | selective system counters, optional NVIDIA NVML |
+| Linux | GNOME Shell indicator, native preferences and GTK analysis | procfs, sysfs, optional NVIDIA NVML |
+| macOS | AppKit menu-bar application and analysis | Mach, BSD, read-only IOKit/SMC/HID |
+| Windows | Native notification icon, menu and analysis | selective system counters, PDH GPU engine and memory counters |
 
 The interface supports English, Russian, Kazakh, Arabic and Chinese, RTL, four
 OpenNetwork themes and OS accessibility preferences. Native controls retain
