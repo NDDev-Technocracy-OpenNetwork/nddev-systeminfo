@@ -66,8 +66,10 @@ pub(super) fn run() -> Result {
                         let log = if bytes.starts_with(&[0xff, 0xfe]) {
                             String::from_utf16_lossy(
                                 &bytes[2..]
-                                    .chunks_exact(2)
-                                    .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
+                                    .as_chunks::<2>()
+                                    .0
+                                    .iter()
+                                    .map(|bytes| u16::from_le_bytes(*bytes))
                                     .collect::<Vec<_>>(),
                             )
                         } else {
