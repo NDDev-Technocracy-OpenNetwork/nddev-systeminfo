@@ -48,7 +48,7 @@ async function exercise() {
     let indicator = extension._indicator;
     assert(extension._settings.config.display.show_network === false, 'explicit legacy false was not preserved');
     Main.overview.hide();
-    assert(indicator._rowItems.length === 12, 'missing metric rows');
+    assert(indicator._rowItems.length === 12 && indicator._cellItems.length === 6, 'missing metric cells or readings');
     assert(indicator._sample.memory.used !== null, 'native memory unavailable');
     const captures = [];
     for (const [locale, theme] of [['en', 'light'], ['ru', 'dark'], ['kk', 'light-contrast'], ['ar', 'dark-contrast'], ['zh', 'light']]) {
@@ -79,6 +79,44 @@ async function exercise() {
     const [, scrollY] = indicator._scroll.get_transformed_position();
     assert(itemY >= scrollY && itemY + last.height <= scrollY + indicator._scroll.height, 'keyboard focus is outside the scroll viewport');
     indicator.menu.close();
+    // A real cell opens the separate GTK window. Drive its standard controls
+    // through accessibility, then validate the real Rust model on the clipboard.
+    indicator._cellItems[0].button.emit('clicked');
+    const analysisTitle = extension._settings.text('app_title');
+    await until(() => global.get_window_actors().some(actor => actor.meta_window.get_title() === analysisTitle));
+    const analysis = global.get_window_actors().find(actor => actor.meta_window.get_title() === analysisTitle);
+    const analysisPid = analysis.meta_window.get_pid();
+    analysis.meta_window.activate(global.get_current_time());
+    const probe = `${GLib.getenv('SYSTEMINFO_TEST_ROOT')}/data/gnome-shell/extensions/systeminfo-ui-test@opennetwork/gtk-inspect.js`;
+    async function inspect(value, action) {
+        return JSON.parse(await command(['gjs', '-m', probe, analysisTitle, value, String(analysisPid), ...(action ? [action] : [])]));
+    }
+    async function ready(value) {
+        const deadline = GLib.get_monotonic_time() + 15_000_000;
+        while (!(await inspect(value)).ready) {
+            if (GLib.get_monotonic_time() >= deadline) throw new Error(`Analysis accessibility did not expose ${value}`);
+            await wait(25);
+        }
+    }
+    const core = extension._settings.text('logical_core').replace('{id}', '0');
+    await ready(core);
+    await screenshot('analysis-cpu'); captures.push('analysis-cpu');
+    assert((await inspect(core, core)).acted, 'logical core button did not activate');
+    await ready(`${core} ·`);
+    const pause = extension._settings.text('pause');
+    assert((await inspect(pause, pause)).acted, 'pause did not activate');
+    await ready(extension._settings.text('paused'));
+    const copy = extension._settings.text('copy_chart');
+    assert((await inspect(copy, copy)).acted, 'analysis copy did not activate');
+    const copiedAnalysis = await new Promise(resolve => St.Clipboard.get_default().get_text(St.ClipboardType.CLIPBOARD, (_, value) => resolve(value)));
+    assert(JSON.parse(copiedAnalysis).metric === 'core:0', 'analysis did not use the selected real logical core');
+    await screenshot('analysis-core-paused'); captures.push('analysis-core-paused');
+    const resume = extension._settings.text('resume');
+    assert((await inspect(resume, resume)).acted, 'resume did not activate');
+    await ready(extension._settings.text('connected'));
+    const close = extension._settings.text('close');
+    assert((await inspect(close, close)).acted, 'close did not activate');
+    await until(() => !Gio.File.new_for_path(`/proc/${analysisPid}`).query_exists(null));
     indicator._preferences();
     await until(() => global.get_window_actors().some(actor => actor.meta_window.get_title() === 'NDDev Systeminfo · Settings'));
     const window = global.get_window_actors().find(actor => actor.meta_window.get_title() === 'NDDev Systeminfo · Settings');
@@ -110,7 +148,7 @@ async function exercise() {
     await until(() => indicator._sample === null && !indicator._copyItem.reactive);
     assert(indicator._rowItems.every(row => row.value.text === '—'), 'offline UI retained a stale reading');
     indicator.menu.open(); await screenshot('offline-ar'); captures.push('offline-ar');
-    return {passed: true, captures, lifecycle: 'enable/read/settings/clipboard/disable/re-enable/offline', high_contrast: true};
+    return {passed: true, captures, lifecycle: 'enable/read/analysis/core/pause/copy/resume/close/settings/clipboard/disable/re-enable/offline', high_contrast: true};
 }
 export default class Acceptance extends Extension {
     enable() {
