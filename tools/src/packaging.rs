@@ -66,6 +66,9 @@ pub(super) fn package() -> Result<PathBuf> {
     ] {
         copy(file, root.join(file))?;
     }
+    if cfg!(target_os = "windows") {
+        crate::windows_msi::build(&root, &version)?;
+    }
     let release = Manifest {
         format: 1,
         version,

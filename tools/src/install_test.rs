@@ -136,7 +136,16 @@ pub(super) fn run() -> Result {
     // Uninstall through the installed executable, including Windows' executable
     // removal boundary. The user must not need a second download to uninstall.
     invoke(&installed, &["uninstall"])?;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while installed.exists() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
     if installed.exists() {
+        #[cfg(target_os = "windows")]
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            let log = PathBuf::from(local).join("nddev-systeminfo/logs/maintenance-uninstall.log");
+            eprintln!("{}", fs::read_to_string(log).unwrap_or_default());
+        }
         return Err("uninstall left the installed executable".into());
     }
     if fs::read(&config)? != saved {

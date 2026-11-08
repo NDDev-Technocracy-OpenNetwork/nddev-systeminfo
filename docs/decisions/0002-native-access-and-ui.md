@@ -25,16 +25,19 @@ inheritable duplicates and process/thread handles; the rest of the product uses
 one safe function. Native installation acceptance captures CLI output and must
 finish while the background products remain alive.
 
-The installed Windows CLI unlinks its own owned image with documented POSIX
-file-disposition semantics before removing its version directory. The mapped
-image remains valid through process exit. This requires a local filesystem
-supporting that Windows operation; failures remain failures. It introduces no
-cleanup script, helper copy, reboot or temporary process. Real self-uninstall
-acceptance, rather than a source check, qualifies this boundary.
+Windows Installer owns a small per-user maintenance package generated in Rust.
+It caches a cleanup executable in its Binary table and owns that executable's
+temporary extraction and removal. The installed CLI hands removal to msiexec
+and exits; the cleanup action waits on its initiating process with SYNCHRONIZE
+access before removing owned versions. No elevation, shell script, resident
+helper or reboot is required. Settings survive. Real self-uninstall acceptance
+qualifies both the asynchronous handoff and removal. POSIX file disposition was
+rejected after real Windows qualification denied deletion of a mapped image.
 
 References: [Rust CommandExt](https://doc.rust-lang.org/std/os/windows/process/trait.CommandExt.html),
 [Windows handle inheritance](https://learn.microsoft.com/en-us/windows/win32/procthread/inheritance).
-See [Windows POSIX file disposition](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/2e860264-018a-47b3-8555-565a13b35a45).
+See [Windows Installer executable actions](https://learn.microsoft.com/en-us/windows/win32/msi/custom-action-type-2)
+and [installation context](https://learn.microsoft.com/en-us/windows/win32/msi/installation-context).
 
 ## Presentation options
 
