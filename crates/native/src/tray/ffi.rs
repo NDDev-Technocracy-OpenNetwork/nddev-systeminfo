@@ -86,6 +86,53 @@ pub(super) struct HighContrast {
     pub flags: u32,
     pub scheme: *mut u16,
 }
+#[cfg(feature = "ui-acceptance")]
+#[repr(C)]
+pub(super) struct Rectangle {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+#[cfg(feature = "ui-acceptance")]
+#[link(name = "dwmapi")]
+unsafe extern "system" {
+    pub(super) fn DwmFlush() -> i32;
+}
+#[cfg(feature = "ui-acceptance")]
+#[link(name = "user32")]
+unsafe extern "system" {
+    pub(super) fn FindWindowExW(
+        parent: Handle,
+        after: Handle,
+        class: *const u16,
+        title: *const u16,
+    ) -> Handle;
+    pub(super) fn GetWindowThreadProcessId(window: Handle, pid: *mut u32) -> u32;
+    pub(super) fn GetWindowRect(window: Handle, rect: *mut Rectangle) -> i32;
+    pub(super) fn UpdateWindow(window: Handle) -> i32;
+    pub(super) fn GetDC(window: Handle) -> Handle;
+    pub(super) fn ReleaseDC(window: Handle, dc: Handle) -> i32;
+}
+#[cfg(feature = "ui-acceptance")]
+#[link(name = "gdi32")]
+unsafe extern "system" {
+    pub(super) fn CreateCompatibleDC(dc: Handle) -> Handle;
+    pub(super) fn DeleteDC(dc: Handle) -> i32;
+    pub(super) fn SelectObject(dc: Handle, object: Handle) -> Handle;
+    pub(super) fn BitBlt(
+        destination: Handle,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        source: Handle,
+        source_x: i32,
+        source_y: i32,
+        operation: u32,
+    ) -> i32;
+    pub(super) fn GdiFlush() -> i32;
+}
 
 #[link(name = "user32")]
 unsafe extern "system" {

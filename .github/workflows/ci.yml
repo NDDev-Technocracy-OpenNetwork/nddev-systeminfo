@@ -56,6 +56,12 @@ jobs:
       - run: ./.tools/bin/systeminfo-tools${{ runner.os == 'Windows' && '.exe' || '' }} test
       - run: cargo clippy --locked --package nddev-systeminfo --all-targets --no-default-features -- -D warnings
       - run: cargo build --release --locked --workspace --all-features
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && runner.os == 'Windows'
+        with:
+          name: win32-native
+          path: .tools/ui-windows
+          if-no-files-found: error
       - name: Check Windows installer syntax
         if: runner.os == 'Windows'
         shell: pwsh

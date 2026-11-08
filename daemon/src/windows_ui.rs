@@ -32,6 +32,24 @@ struct State {
 }
 type Shared = Arc<(Mutex<State>, Condvar)>;
 
+/// A native frontend and its acceptance harness consume the same presentation
+/// model. This function owns no collector, window, timer or background process.
+pub fn native_model(config: &Config, sample: Option<&WireSnapshot>) -> Model {
+    let mut state = State {
+        config: config.clone(),
+        catalog: Catalog::load(&config.display.locale, &[&tray::system_language()]),
+        sample: sample.cloned(),
+        generation: 0,
+        stopped: false,
+        cancel: None,
+        icon: Vec::new(),
+        side: 32,
+        notice: None,
+    };
+    state.refresh_icon();
+    state.model()
+}
+
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::load(None)?;
     crate::telemetry::init(&config.logging.level);

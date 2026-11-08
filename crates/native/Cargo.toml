@@ -27,6 +27,7 @@ uds_windows = "1.2.1"
 [features]
 default = ["nvidia"]
 nvidia = ["dep:nvml-wrapper"]
+ui-acceptance = []
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
