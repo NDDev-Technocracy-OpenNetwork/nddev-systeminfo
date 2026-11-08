@@ -1,6 +1,8 @@
 //! Safe ownership boundary for native notification icons and menus. No pointer
 //! from a window procedure refers to Rust state. The creator thread owns every
 //! window/menu/icon; other threads post wakeups through a bounded latest value.
+#[cfg(feature = "ui-acceptance")]
+pub mod acceptance;
 mod ffi;
 use ffi::*;
 use std::{
