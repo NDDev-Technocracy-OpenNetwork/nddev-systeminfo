@@ -14,7 +14,7 @@ impl Cpu {
     pub(super) fn new() -> io::Result<Self> {
         Ok(Self {
             system: System::new_with_specifics(
-                RefreshKind::nothing().with_cpu(CpuRefreshKind::nothing().with_cpu_usage()),
+                RefreshKind::nothing().with_cpu(CpuRefreshKind::nothing().with_usage()),
             )
             .map_err(io::Error::other)?,
             primed: false,
@@ -35,7 +35,7 @@ impl Cpu {
                 Core {
                     id: id as u32,
                     usage: primed
-                        .then(|| f64::from((cpu.cpu_usage() * 10.0).round() / 10.0))
+                        .then(|| f64::from((cpu.usage() * 10.0).round() / 10.0))
                         .filter(|v| v.is_finite() && (0.0..=100.0).contains(v)),
                 }
             }));

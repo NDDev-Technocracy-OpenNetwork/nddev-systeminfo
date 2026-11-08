@@ -68,6 +68,7 @@ impl MetricsSource for MacosCollector {
         }
         let reading = self.gpu.as_mut().map(Gpu::read);
         snapshot.gpu = reading.as_ref().and_then(|reading| reading.usage);
+        snapshot.gpu_memory = reading.as_ref().and_then(|reading| reading.memory);
         snapshot.cpu_temperature = self.temperatures.cpu();
         // SMC keys first, then the accelerator's own report, then the HID
         // sensor Apple silicon exposes — each a fallback for the one before.

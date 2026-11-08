@@ -152,7 +152,7 @@ pub(super) fn install(source: &Path, manifest: &Manifest, provider_only: bool) -
         .as_ref()
         .map(|directory| binaries(directory).to_vec())
         .unwrap_or_else(|| vec![legacy.clone()]);
-    let active = tray::running_products(&previous);
+    let active = tray::running_products(&previous)?;
     if target.exists() {
         let installed: Manifest =
             toml::from_str(&fs::read_to_string(target.join("manifest.toml"))?)?;
@@ -217,7 +217,7 @@ pub(super) fn service(operation: &str) -> Result<serde_json::Value> {
         return Ok(serde_json::json!({"applied":false}));
     }
     let provider = binaries(&installed?)[0].clone();
-    let running = !tray::running_products(std::slice::from_ref(&provider)).is_empty();
+    let running = !tray::running_products(std::slice::from_ref(&provider))?.is_empty();
     match operation {
         "status" => {
             Ok(serde_json::json!({"managed":true,"active":running,"enabled":enabled(PROVIDER)?}))

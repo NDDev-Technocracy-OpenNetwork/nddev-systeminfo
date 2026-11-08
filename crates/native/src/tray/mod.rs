@@ -738,14 +738,14 @@ fn tooltip(value: &str) -> [u16; 128] {
     result
 }
 
-fn processes() -> sysinfo::System {
-    let mut system = sysinfo::System::new();
+fn processes() -> io::Result<sysinfo::System> {
+    let mut system = sysinfo::System::new().map_err(io::Error::other)?;
     system.refresh_processes_specifics(
         sysinfo::ProcessesToUpdate::All,
         true,
         sysinfo::ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::OnlyIfNotSet),
     );
-    system
+    Ok(system)
 }
 fn matches_path(path: &Path, expected: &Path) -> bool {
     std::fs::canonicalize(path)
@@ -753,9 +753,9 @@ fn matches_path(path: &Path, expected: &Path) -> bool {
         .zip(std::fs::canonicalize(expected).ok())
         .is_some_and(|(a, b)| a == b)
 }
-pub fn running_products(paths: &[std::path::PathBuf]) -> Vec<std::path::PathBuf> {
-    let system = processes();
-    paths
+pub fn running_products(paths: &[std::path::PathBuf]) -> io::Result<Vec<std::path::PathBuf>> {
+    let system = processes()?;
+    Ok(paths
         .iter()
         .filter(|path| {
             system
@@ -764,10 +764,10 @@ pub fn running_products(paths: &[std::path::PathBuf]) -> Vec<std::path::PathBuf>
                 .any(|process| process.exe().is_some_and(|exe| matches_path(exe, path)))
         })
         .cloned()
-        .collect()
+        .collect())
 }
 pub fn stop_products(paths: &[std::path::PathBuf]) -> io::Result<bool> {
-    let mut system = processes();
+    let mut system = processes()?;
     let targets: Vec<_> = system
         .processes()
         .iter()
