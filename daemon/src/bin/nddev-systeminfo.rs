@@ -14,6 +14,12 @@ use std::{
 };
 
 fn run() -> Result<(), Box<dyn Error>> {
+    if let Some(result) =
+        nddev_systeminfo::installation::command(&std::env::args().skip(1).collect::<Vec<_>>())?
+    {
+        println!("{}", serde_json::to_string(&result)?);
+        return Ok(());
+    }
     let mut args = std::env::args().skip(1);
     let (mut config_path, mut socket, mut interval) = (None, None, None);
     let (mut once, mut json) = (false, false);

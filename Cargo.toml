@@ -18,6 +18,7 @@ thiserror = "=2.0.21"
 socket2 = "=0.6.5"
 tracing = { version = "=0.1.44", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "registry"] }
+sha2 = "=0.11.1"
 nddev-opennetwork-design-tokens = { version = "=0.0.1-alpha.9", git = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-opennetwork-design-system", rev = "dbdf11b27fc6245b7942ad3e271f171602fce931" }
 nddev-systeminfo-contract = { path = "crates/contract", version = "=0.3.2" }
 nddev-systeminfo-native = { path = "crates/native", version = "=0.3.2", default-features = false }
