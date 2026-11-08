@@ -7,25 +7,6 @@ use std::{
 };
 
 #[repr(C)]
-#[derive(Clone, Copy)]
-struct Keyboard {
-    key: u16,
-    scan: u16,
-    flags: u32,
-    time: u32,
-    extra: usize,
-}
-#[repr(C)]
-union InputData {
-    keyboard: Keyboard,
-    storage: [usize; 4],
-}
-#[repr(C)]
-struct Input {
-    kind: u32,
-    data: InputData,
-}
-#[repr(C)]
 struct GuiThreadInfo {
     size: u32,
     flags: u32,
@@ -41,7 +22,6 @@ struct GuiThreadInfo {
 unsafe extern "system" {
     fn GetForegroundWindow() -> Handle;
     fn AttachThreadInput(source: u32, target: u32, attach: i32) -> i32;
-    fn SendInput(count: u32, input: *const Input, size: i32) -> u32;
     fn GetGUIThreadInfo(thread: u32, information: *mut GuiThreadInfo) -> i32;
 }
 #[link(name = "kernel32")]
@@ -246,9 +226,8 @@ pub fn popup_entries() -> io::Result<Option<Vec<(String, bool)>>> {
 pub fn choose_last_action() -> io::Result<()> {
     disposable_desktop()?;
     popup_window(None).ok_or_else(|| io::Error::other("owned popup missing"))?;
-    // SAFETY: input is sent only after checking that this disposable process
-    // owns foreground. The OS copies four initialized keyboard records. Posted
-    // window messages are insufficient for the native menu's real input loop.
+    // SAFETY: input is posted only after checking this disposable process owns
+    // foreground and the menu. All arguments are values, with no Rust pointers.
     unsafe {
         let mut owner = 0;
         GetWindowThreadProcessId(GetForegroundWindow(), &mut owner);
@@ -266,22 +245,15 @@ pub fn choose_last_action() -> io::Result<()> {
             "native input state: flags={:#x}, active={:?}, focus={:?}, menu_owner={:?}",
             info.flags, info.active, info.focus, info.menu_owner
         );
-        let mut input: [Input; 2] = std::mem::zeroed();
-        for (entry, (key, flags)) in input.iter_mut().zip([(0x23, 1), (0x23, 3)]) {
-            entry.kind = 1;
-            entry.data.keyboard = Keyboard {
-                key,
-                scan: 0,
-                flags,
-                time: 0,
-                extra: 0,
-            };
+        let target = info.menu_owner;
+        if target.is_null() {
+            return Err(io::Error::other("native menu owner missing"));
         }
-        if SendInput(
-            input.len() as u32,
-            input.as_ptr(),
-            size_of::<Input>() as i32,
-        ) != input.len() as u32
+        // Address the owning GUI queue. Hosted runners may have a disconnected
+        // input desktop; the modal menu still consumes real WM_KEYDOWN/UP
+        // messages on its owner thread, rather than on the popup HWND.
+        if PostMessageW(target, 0x100, 0x23, 0x014f0001) == 0
+            || PostMessageW(target, 0x101, 0x23, 0xc14f0001_u32 as isize) == 0
         {
             return Err(io::Error::last_os_error());
         }
@@ -310,15 +282,8 @@ pub fn choose_last_action() -> io::Result<()> {
             }
             thread::sleep(Duration::from_millis(10));
         }
-        for (entry, flags) in input.iter_mut().zip([0, 2]) {
-            entry.data.keyboard.key = 0x0d;
-            entry.data.keyboard.flags = flags;
-        }
-        if SendInput(
-            input.len() as u32,
-            input.as_ptr(),
-            size_of::<Input>() as i32,
-        ) != input.len() as u32
+        if PostMessageW(target, 0x100, 0x0d, 0x001c0001) == 0
+            || PostMessageW(target, 0x101, 0x0d, 0xc01c0001_u32 as isize) == 0
         {
             return Err(io::Error::last_os_error());
         }
