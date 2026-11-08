@@ -319,7 +319,10 @@ impl Tray {
                     match model {
                         Some(model) => match &mut dashboard {
                             Some(window) => window.update(model)?,
-                            None => dashboard = Some(dashboard::Window::new(self.window, model)?),
+                            None => {
+                                dashboard =
+                                    Some(dashboard::Window::new(self.window, model, self.icon)?)
+                            }
                         },
                         None => dashboard = None,
                     }

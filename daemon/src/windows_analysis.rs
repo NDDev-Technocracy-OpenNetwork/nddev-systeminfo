@@ -522,63 +522,6 @@ fn model(s: &State) -> Model {
                 .collect(),
         ));
         if let Some(v) = &s.view {
-            rows.push(Row::Text(format!(
-                "{} — {}  ·  −{} min … 0",
-                value(Some(v.y_max), &v.unit),
-                value(Some(v.y_min), &v.unit),
-                v.range_seconds / 60
-            )));
-            let normalize = |value: f64| ((value - v.y_min) / (v.y_max - v.y_min)).clamp(0.0, 1.0);
-            rows.push(Row::Plot {
-                points: v
-                    .points
-                    .iter()
-                    .map(|p| dashboard::Point {
-                        x: (1.0
-                            - (v.end_ms.saturating_sub(p.x_ms)) as f64
-                                / (v.range_seconds * 1000) as f64)
-                            .clamp(0.0, 1.0),
-                        low: normalize(p.low),
-                        high: normalize(p.high),
-                        value: normalize(p.value),
-                        gap: p.gap,
-                    })
-                    .collect(),
-                description: c.text(&v.label).replace(
-                    "{id}",
-                    s.selected
-                        .as_deref()
-                        .unwrap_or("")
-                        .strip_prefix("core:")
-                        .unwrap_or(""),
-                ),
-            });
-            let stats = &v.statistics;
-            rows.push(Row::Text(
-                [
-                    (
-                        "current",
-                        if s.live || s.paused {
-                            stats.current
-                        } else {
-                            None
-                        },
-                    ),
-                    ("minimum", stats.minimum),
-                    ("average", stats.average),
-                    ("maximum", stats.maximum),
-                ]
-                .map(|(key, reading)| c.reading(key, &value(reading, &v.unit)))
-                .join("     "),
-            ));
-            rows.push(Row::Text(
-                c.text("history_coverage")
-                    .replace("{count}", &stats.samples.to_string())
-                    .replace(
-                        "{minutes}",
-                        &format!("{:.1}", stats.covered_ms as f64 / 60000.0),
-                    ),
-            ));
             if let Some(frame) = &v.latest {
                 if s.selected
                     .as_ref()
@@ -653,6 +596,63 @@ fn model(s: &State) -> Model {
                     }
                 }
             }
+            rows.push(Row::Text(format!(
+                "{} — {}  ·  −{} min … 0",
+                value(Some(v.y_max), &v.unit),
+                value(Some(v.y_min), &v.unit),
+                v.range_seconds / 60
+            )));
+            let normalize = |value: f64| ((value - v.y_min) / (v.y_max - v.y_min)).clamp(0.0, 1.0);
+            rows.push(Row::Plot {
+                points: v
+                    .points
+                    .iter()
+                    .map(|p| dashboard::Point {
+                        x: (1.0
+                            - (v.end_ms.saturating_sub(p.x_ms)) as f64
+                                / (v.range_seconds * 1000) as f64)
+                            .clamp(0.0, 1.0),
+                        low: normalize(p.low),
+                        high: normalize(p.high),
+                        value: normalize(p.value),
+                        gap: p.gap,
+                    })
+                    .collect(),
+                description: c.text(&v.label).replace(
+                    "{id}",
+                    s.selected
+                        .as_deref()
+                        .unwrap_or("")
+                        .strip_prefix("core:")
+                        .unwrap_or(""),
+                ),
+            });
+            let stats = &v.statistics;
+            rows.push(Row::Text(
+                [
+                    (
+                        "current",
+                        if s.live || s.paused {
+                            stats.current
+                        } else {
+                            None
+                        },
+                    ),
+                    ("minimum", stats.minimum),
+                    ("average", stats.average),
+                    ("maximum", stats.maximum),
+                ]
+                .map(|(key, reading)| c.reading(key, &value(reading, &v.unit)))
+                .join("     "),
+            ));
+            rows.push(Row::Text(
+                c.text("history_coverage")
+                    .replace("{count}", &stats.samples.to_string())
+                    .replace(
+                        "{minutes}",
+                        &format!("{:.1}", stats.covered_ms as f64 / 60000.0),
+                    ),
+            ));
         }
     }
     rows.push(Row::Text(c.text("history_hint").into()));
@@ -679,6 +679,10 @@ fn model(s: &State) -> Model {
         control: m.size_control_sm as i32,
         font,
         card,
+        radius: m.radius_md as i32,
+        plot_height: m.size_featured_card_min as i32 / 2,
+        width: m.size_featured_card_min as i32 * 3,
+        height: m.size_featured_card_min as i32 * 2 + m.space_4 as i32 * 5,
         rows,
     }
 }

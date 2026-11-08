@@ -58,6 +58,10 @@ pub struct Model {
     pub control: i32,
     pub font: i32,
     pub card: i32,
+    pub radius: i32,
+    pub plot_height: i32,
+    pub width: i32,
+    pub height: i32,
     pub rows: Vec<Row>,
 }
 struct Control {
@@ -84,15 +88,20 @@ thread_local! { static SURFACE: RefCell<Option<Rc<RefCell<Surface>>>> = const { 
 pub(super) struct Window {
     surface: Rc<RefCell<Surface>>,
     instance: Handle,
+    icon: Handle,
     _thread: PhantomData<Rc<()>>,
 }
 impl Window {
-    pub(super) fn new(parent: Handle, model: Model) -> io::Result<Self> {
+    pub(super) fn new(parent: Handle, model: Model, source_icon: Handle) -> io::Result<Self> {
         validate(&model)?;
         // SAFETY: synchronous Win32 copies class/name strings. No Rust pointer
         // enters window data; the TLS map is consulted only on the owning thread.
         unsafe {
             let instance = GetModuleHandleW(null());
+            let icon = CopyIcon(source_icon);
+            if icon.is_null() {
+                return Err(io::Error::last_os_error());
+            }
             let class = wide(CLASS);
             let definition = WindowClass {
                 style: 3,
@@ -100,24 +109,33 @@ impl Window {
                 class_extra: 0,
                 window_extra: 0,
                 instance,
-                icon: null_mut(),
+                icon,
                 cursor: LoadCursorW(null_mut(), 32512_usize as *const u16),
                 background: null_mut(),
                 menu_name: null(),
                 class_name: class.as_ptr(),
             };
             if RegisterClassW(&definition) == 0 {
+                DestroyIcon(icon);
                 return Err(io::Error::last_os_error());
             }
+            let mut area: Rectangle = zeroed();
+            SystemParametersInfoW(48, 0, (&mut area as *mut Rectangle).cast(), 0);
+            let width = model
+                .width
+                .min((area.right - area.left - 2 * model.padding).max(320));
+            let height = model
+                .height
+                .min((area.bottom - area.top - 2 * model.padding).max(320));
             let window = CreateWindowExW(
                 0x00010000,
                 class.as_ptr(),
                 wide(&model.title).as_ptr(),
                 0x00cf0000 | 0x00200000,
-                i32::MIN,
-                i32::MIN,
-                960,
-                720,
+                area.left + (area.right - area.left - width).max(0) / 2,
+                area.top + (area.bottom - area.top - height).max(0) / 2,
+                width,
+                height,
                 null_mut(),
                 null_mut(),
                 instance,
@@ -125,6 +143,7 @@ impl Window {
             );
             if window.is_null() {
                 UnregisterClassW(class.as_ptr(), instance);
+                DestroyIcon(icon);
                 return Err(io::Error::last_os_error());
             }
             let dpi = f64::from(GetDpiForWindow(window).max(96)) / 96.0;
@@ -145,6 +164,7 @@ impl Window {
             let mut result = Self {
                 surface,
                 instance,
+                icon,
                 _thread: PhantomData,
             };
             result.rebuild();
@@ -227,6 +247,7 @@ impl Drop for Window {
             DestroyWindow(s.window);
             s.controls.clear();
             s.release_gdi();
+            DestroyIcon(self.icon);
             UnregisterClassW(wide(CLASS).as_ptr(), self.instance);
         }
     }
@@ -239,6 +260,10 @@ fn validate(model: &Model) -> io::Result<()> {
         || !(0..=64).contains(&model.padding)
         || !(0..=64).contains(&model.gap)
         || !(16..=128).contains(&model.control)
+        || !(0..=64).contains(&model.radius)
+        || !(1..=1024).contains(&model.plot_height)
+        || !(320..=4096).contains(&model.width)
+        || !(320..=2160).contains(&model.height)
         || model.rows.iter().any(|r| match r {
             Row::Buttons { columns, items, .. } => {
                 *columns == 0
@@ -363,7 +388,7 @@ impl Surface {
     }
     fn row_height(&self, row: &Row) -> i32 {
         match row {
-            Row::Text(_) => self.px(self.model.font * 2 + self.model.gap),
+            Row::Text(_) => self.px(self.model.font + self.model.gap),
             Row::Buttons {
                 columns,
                 large,
@@ -377,7 +402,7 @@ impl Surface {
                     }) + self.px(self.model.gap))
             }
             Row::Choice { .. } => self.px(self.model.control + self.model.gap),
-            Row::Plot { .. } => self.px(180),
+            Row::Plot { .. } => self.px(self.model.plot_height),
         }
     }
     fn layout(&mut self) {
@@ -522,7 +547,7 @@ impl Surface {
                     };
                     DrawTextW(
                         dc,
-                        wide(text).as_ptr(),
+                        wide(&gdi_text(text)).as_ptr(),
                         -1,
                         &mut rect,
                         0x10 | 0x800 | 0x8000 | if self.model.rtl { 0x20000 | 2 } else { 0 },
@@ -602,17 +627,27 @@ impl Surface {
                 item.rectangle.top,
                 item.rectangle.right,
                 item.rectangle.bottom,
-                self.px(8),
-                self.px(8),
+                self.px(self.model.radius),
+                self.px(self.model.radius),
             );
             SetBkMode(item.dc, 1);
             SetTextColor(item.dc, self.model.colors[2]);
             let old_font = SelectObject(item.dc, self.font);
             let mut rect = Rectangle {
                 left: item.rectangle.left + self.px(self.model.gap),
-                top: item.rectangle.top + self.px(self.model.gap),
+                top: item.rectangle.top
+                    + self.px(if *large {
+                        self.model.gap
+                    } else {
+                        self.model.gap / 4
+                    }),
                 right: item.rectangle.right - self.px(self.model.gap),
-                bottom: item.rectangle.bottom - self.px(self.model.gap),
+                bottom: item.rectangle.bottom
+                    - self.px(if *large {
+                        self.model.gap
+                    } else {
+                        self.model.gap / 4
+                    }),
             };
             if *large && let Some((caption, value)) = action.text.split_once('\n') {
                 SetTextColor(item.dc, self.model.colors[3]);
@@ -640,7 +675,7 @@ impl Surface {
             } else {
                 DrawTextW(
                     item.dc,
-                    wide(&action.text).as_ptr(),
+                    wide(&gdi_text(&action.text)).as_ptr(),
                     -1,
                     &mut rect,
                     1 | 4 | 0x20 | 0x800 | 0x8000,
@@ -745,13 +780,35 @@ unsafe extern "system" fn procedure(
                 InvalidateRect(window, null(), 1);
                 0
             }
-            0x001a | 0x031a | 0x02e0 => {
+            0x02e0 => {
+                s.dpi = f64::from(((wparam >> 16) & 0xffff).max(96) as u32) / 96.0;
+                if lparam != 0 {
+                    let rect = &*(lparam as *const Rectangle);
+                    MoveWindow(
+                        window,
+                        rect.left,
+                        rect.top,
+                        rect.right - rect.left,
+                        rect.bottom - rect.top,
+                        1,
+                    );
+                }
+                s.rebuild();
+                PostMessageW(s.parent, 0x8005, 0, 0);
+                0
+            }
+            0x001a | 0x031a => {
                 PostMessageW(s.parent, 0x8005, 0, 0);
                 0
             }
             _ => DefWindowProcW(window, message, wparam, lparam),
         }
     }
+}
+// GDI predates Unicode isolate controls. LRM preserves numeric direction without
+// rendering a missing-glyph box; native layout still uses the OS RTL flag.
+fn gdi_text(text: &str) -> String {
+    text.replace(['\u{2068}', '\u{2069}'], "\u{200e}")
 }
 unsafe fn font(height: i32) -> Handle {
     // SAFETY: the returned font is owned and destroyed by Surface.
@@ -807,6 +864,7 @@ struct ScrollInfo {
 }
 #[link(name = "user32")]
 unsafe extern "system" {
+    fn CopyIcon(icon: Handle) -> Handle;
     fn LoadCursorW(instance: Handle, name: *const u16) -> Handle;
     fn ShowWindow(window: Handle, command: i32) -> i32;
     fn SetWindowTextW(window: Handle, text: *const u16) -> i32;
