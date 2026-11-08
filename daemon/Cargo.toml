@@ -16,6 +16,10 @@ path = "src/main.rs"
 name = "nddev-systeminfo"
 path = "src/bin/nddev-systeminfo.rs"
 
+[[bin]]
+name = "nddev-systeminfo-tray"
+path = "src/bin/nddev-systeminfo-tray.rs"
+
 [dependencies]
 nddev-systeminfo-contract.workspace = true
 nddev-systeminfo-native.workspace = true

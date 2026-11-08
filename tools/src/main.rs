@@ -202,6 +202,8 @@ fn generate() -> Result {
     fs::write("extension/resources/ui.json", ui_resource()?)?;
     fs::write("extension/lib/contract.js", js_contract()?)?;
     fs::write("macos/Sample.swift", swift_contract()?)?;
+    fs::create_dir_all("assets")?;
+    fs::write("assets/brand-mask-64.bin", brand_mask()?)?;
     fs::write("extension/resources/brand-symbolic.svg", brand_svg())?;
     Ok(())
 }
@@ -219,6 +221,67 @@ fn brand_svg() -> String {
             .map(|shape| format!("<path fill=\"currentColor\" d=\"{}\"/>", shape.d))
             .collect::<String>()
     )
+}
+fn brand_mask() -> Result<Vec<u8>> {
+    use nddev_opennetwork_design_tokens::BRAND_MARK;
+    let mut polygons = Vec::new();
+    for shape in BRAND_MARK.shapes {
+        if shape
+            .d
+            .chars()
+            .any(|c| c.is_alphabetic() && !['M', 'L', 'Z'].contains(&c))
+        {
+            return Err("brand projection requires the released polygon geometry".into());
+        }
+        let numbers: Vec<f64> = shape
+            .d
+            .replace(['M', 'L', 'Z', ','], " ")
+            .split_whitespace()
+            .map(str::parse)
+            .collect::<std::result::Result<_, _>>()?;
+        if !numbers.len().is_multiple_of(2) {
+            return Err("invalid brand polygon".into());
+        }
+        polygons.push(
+            numbers
+                .chunks_exact(2)
+                .map(|point| (point[0], point[1]))
+                .collect::<Vec<_>>(),
+        );
+    }
+    let mut mask = vec![0; 64 * 64];
+    for y in 0..64 {
+        for x in 0..64 {
+            let mut coverage = 0;
+            for sy in 0..4 {
+                for sx in 0..4 {
+                    let px = f64::from(BRAND_MARK.min_x)
+                        + (x as f64 + (f64::from(sx) + 0.5) / 4.0) * f64::from(BRAND_MARK.width)
+                            / 64.0;
+                    let py = f64::from(BRAND_MARK.min_y)
+                        + (y as f64 + (f64::from(sy) + 0.5) / 4.0) * f64::from(BRAND_MARK.height)
+                            / 64.0;
+                    if polygons.iter().any(|polygon| {
+                        let mut inside = false;
+                        let mut previous = *polygon.last().expect("nonempty released polygon");
+                        for &(a, b) in polygon {
+                            if (b > py) != (previous.1 > py)
+                                && px < (previous.0 - a) * (py - b) / (previous.1 - b) + a
+                            {
+                                inside = !inside;
+                            }
+                            previous = (a, b);
+                        }
+                        inside
+                    }) {
+                        coverage += 1;
+                    }
+                }
+            }
+            mask[y * 64 + x] = (coverage * 255 / 16) as u8;
+        }
+    }
+    Ok(mask)
 }
 fn js_contract() -> Result<String> {
     use serde_json::{Map, Value};
@@ -405,6 +468,9 @@ fn check() -> Result {
     }
     if fs::read_to_string("macos/Sample.swift")? != swift_contract()? {
         return Err("native Swift wire contract drifted; run just generate".into());
+    }
+    if fs::read("assets/brand-mask-64.bin")? != brand_mask()? {
+        return Err("native icon mask drifted; run just generate".into());
     }
     if fs::read_to_string("extension/resources/brand-symbolic.svg")? != brand_svg() {
         return Err("native brand mark drifted; run just generate".into());

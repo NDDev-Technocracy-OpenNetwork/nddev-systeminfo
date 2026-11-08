@@ -79,6 +79,9 @@ impl Proxy {
     pub fn open_menu(&self) {
         self.post(OPEN);
     }
+    pub fn watch_config(&self, path: &Path) -> io::Result<Watcher> {
+        Watcher::new(path, self.clone())
+    }
     fn post(&self, message: u32) {
         let state = self.0.lock().unwrap();
         if state.window != 0 {
@@ -374,7 +377,7 @@ fn create_menu(entries: &[Entry]) -> io::Result<Menu> {
     for entry in entries {
         let (flags, id, text, child) = match entry {
             Entry::Separator => (0x800, 0, String::new(), None),
-            Entry::Label(text) => (0x2, 0, text.clone(), None),
+            Entry::Label(text) => (0, 0, text.clone(), None),
             Entry::Action {
                 id,
                 title,
@@ -539,8 +542,12 @@ fn wide(value: &str) -> Vec<u16> {
 pub struct Watcher {
     stop: usize,
     thread: Option<JoinHandle<()>>,
+    directory: std::path::PathBuf,
 }
 impl Watcher {
+    pub fn directory(&self) -> &Path {
+        &self.directory
+    }
     fn new(path: &Path, proxy: Proxy) -> io::Result<Self> {
         use std::os::windows::ffi::OsStrExt;
         let mut directory = path
@@ -551,11 +558,12 @@ impl Watcher {
                 .parent()
                 .ok_or_else(|| io::Error::other("config ancestor missing"))?;
         }
+        let directory = directory.to_path_buf();
         let path: Vec<u16> = directory.as_os_str().encode_wide().chain(Some(0)).collect();
         // SAFETY: paths live through calls; both returned handles are owned. The
         // thread gets integer handle values, accesses no Rust pointer and exits
         // before Drop closes the cancellation event.
-        let change = unsafe { FindFirstChangeNotificationW(path.as_ptr(), 1, 0x1 | 0x10) };
+        let change = unsafe { FindFirstChangeNotificationW(path.as_ptr(), 0, 0x1 | 0x10) };
         if change as isize == -1 {
             return Err(io::Error::last_os_error());
         }
@@ -592,6 +600,7 @@ impl Watcher {
             Ok(thread) => Ok(Self {
                 stop: stop_value,
                 thread: Some(thread),
+                directory,
             }),
             Err(error) => {
                 unsafe {
