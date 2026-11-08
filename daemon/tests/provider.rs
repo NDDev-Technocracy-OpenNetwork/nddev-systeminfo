@@ -78,24 +78,15 @@ impl Provider {
                 }
             }
         });
-        let mut provider = Self {
+        let provider = Self {
             child,
             directory,
             socket,
             logs,
         };
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while !provider.socket.exists() {
-            assert!(
-                provider.child.try_wait().unwrap().is_none(),
-                "native daemon exited before readiness"
-            );
-            assert!(
-                Instant::now() < deadline,
-                "native socket readiness deadline exceeded"
-            );
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        // A Unix socket pathname can exist between bind and listen. The public
+        // started event is emitted only after the listener is actually ready.
+        provider.event("systeminfo.started");
         provider
     }
     fn client(&self) -> Client {
@@ -128,7 +119,6 @@ impl Drop for Provider {
 #[test]
 fn native_provider_is_standalone_lazy_and_releases_its_collector() {
     let mut provider = Provider::start();
-    provider.event("systeminfo.started");
     assert!(
         provider.logs.try_recv().is_err(),
         "collector ran without clients"
