@@ -231,6 +231,19 @@ pub(super) fn build(root: &Path, version: &str) -> Result {
             sequence.into(),
         ]))?;
     }
+    package.create_table(
+        "InstallUISequence",
+        vec![
+            Column::build("Action").primary_key().id_string(72),
+            Column::build("Condition").nullable().string(255),
+            Column::build("Sequence").int16(),
+        ],
+    )?;
+    package.insert_rows(Insert::into("InstallUISequence").row(vec![
+        "ExecuteAction".into(),
+        Value::Null,
+        1300.into(),
+    ]))?;
     // msi::create uses CFB's v4 default. Windows Installer requires the v3
     // structured-storage layout, so serialize the same MSI streams to v3.
     let mut source = cfb::CompoundFile::open(package.into_inner()?)?;
@@ -253,19 +266,6 @@ pub(super) fn build(root: &Path, version: &str) -> Result {
             &mut output.create_stream(&stream)?,
         )?;
     }
-    package.create_table(
-        "InstallUISequence",
-        vec![
-            Column::build("Action").primary_key().id_string(72),
-            Column::build("Condition").nullable().string(255),
-            Column::build("Sequence").int16(),
-        ],
-    )?;
-    package.insert_rows(Insert::into("InstallUISequence").row(vec![
-        "ExecuteAction".into(),
-        Value::Null,
-        1300.into(),
-    ]))?;
     output.flush()?;
     Ok(())
 }
