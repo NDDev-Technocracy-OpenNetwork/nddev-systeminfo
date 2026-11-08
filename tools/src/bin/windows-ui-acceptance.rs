@@ -6,6 +6,7 @@ mod desktop {
         fs,
         path::Path,
         process::{Child, Command, Stdio},
+        sync::{Arc, Mutex},
         thread,
         time::{Duration, Instant},
     };
@@ -39,15 +40,15 @@ mod desktop {
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
-        let _provider = Provider(child, directory);
+        let provider = Arc::new(Mutex::new(Provider(child, directory)));
         let deadline = Instant::now() + Duration::from_secs(10);
-        let mut client = loop {
+        let mut client = Some(loop {
             if let Ok(client) = Client::connect(&socket, 0, Duration::from_secs(1)) {
                 break client;
             }
             assert!(Instant::now() < deadline, "real provider did not bind");
             thread::sleep(Duration::from_millis(10));
-        };
+        });
         let artifacts = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
@@ -60,7 +61,7 @@ mod desktop {
             ("ar", "dark-contrast"),
             ("zh", "light"),
         ] {
-            let sample = client.next_sample().unwrap();
+            let sample = client.as_mut().unwrap().next_sample().unwrap();
             let mut config = Config::parse(nddev_systeminfo::config::DEFAULT_TOML).unwrap();
             config.display.locale = code.into();
             config.display.theme = theme.into();
@@ -77,8 +78,12 @@ mod desktop {
             let proxy = tray.proxy();
             let capture = proxy.clone();
             let path = artifacts.join(format!("{code}-{theme}.png"));
+            let offline_path = artifacts.join("offline.png");
+            let offline = nddev_systeminfo::windows_ui::native_model(&config, None);
+            let mut reader = if code == "zh" { client.take() } else { None };
+            let provider = provider.clone();
             let photographer = thread::spawn(move || {
-                let _close = Close(capture);
+                let _close = Close(capture.clone());
                 let deadline = Instant::now() + Duration::from_secs(10);
                 while !tray::acceptance::capture_popup(&path).unwrap() {
                     assert!(
@@ -86,6 +91,34 @@ mod desktop {
                         "native popup never became visible"
                     );
                     thread::sleep(Duration::from_millis(10));
+                }
+                if let Some(reader) = reader.as_mut() {
+                    let mut provider = provider.lock().unwrap();
+                    provider.0.kill().unwrap();
+                    provider.0.wait().unwrap();
+                    while reader.next_sample().is_ok() {
+                        assert!(Instant::now() < deadline, "provider EOF was not observed");
+                    }
+                    capture.update(offline);
+                    loop {
+                        if let Some(entries) = tray::acceptance::popup_entries().unwrap()
+                            && entries
+                                .iter()
+                                .filter(|(title, _)| title.ends_with('—'))
+                                .count()
+                                == 12
+                            && !entries[15].1
+                        // the native copy action is disabled
+                        {
+                            break;
+                        }
+                        assert!(
+                            Instant::now() < deadline,
+                            "open native menu retained disconnected readings"
+                        );
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    assert!(tray::acceptance::capture_popup(&offline_path).unwrap());
                 }
             });
             proxy.open_menu();
@@ -96,7 +129,7 @@ mod desktop {
         }
         fs::write(
             artifacts.join("result.json"),
-            "{\"native_popup\":true,\"real_provider\":true,\"locales\":5,\"themes\":4}\n",
+            "{\"native_popup\":true,\"real_provider\":true,\"open_menu_disconnect_clears_all_12\":true,\"copy_disabled_offline\":true,\"locales\":5,\"themes\":4}\n",
         )
         .unwrap();
     }

@@ -315,7 +315,7 @@ impl State {
         entries.extend(
             ui::readings(self.sample.as_ref())
                 .into_iter()
-                .map(|(key, value)| Entry::Label(catalog.reading(key, &value))),
+                .map(|(key, value)| Entry::Label(self.reading(key, &value))),
         );
         entries.push(Entry::Separator);
         for (id, key, enabled) in [
@@ -415,7 +415,15 @@ impl State {
         });
         let readings = ui::readings(self.sample.as_ref());
         let display = &self.config.display;
-        let mut tooltip = vec![catalog.text("app_title").to_string()];
+        let mut tooltip = vec![format!(
+            "{} · {}",
+            catalog.text("app_title"),
+            catalog.text(if self.sample.is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            })
+        )];
         for (show, key) in [
             (display.show_cpu, "cpu"),
             (display.show_memory, "memory"),
@@ -426,7 +434,7 @@ impl State {
         ] {
             if show {
                 let value = &readings.iter().find(|(name, _)| *name == key).unwrap().1;
-                tooltip.push(catalog.reading(key, value));
+                tooltip.push(self.reading(key, value));
             }
         }
         Model {
@@ -435,6 +443,16 @@ impl State {
             rtl: catalog.rtl,
             icon: self.icon.clone(),
             icon_side: self.side,
+        }
+    }
+    fn reading(&self, key: &str, value: &str) -> String {
+        // Classic USER32 menus implement bidi marks, but render Unicode isolate
+        // controls as missing glyphs. Bound the machine value with LRM in RTL.
+        let label = self.catalog.text(key);
+        if self.catalog.rtl {
+            format!("{label}: \u{200e}{value}\u{200e}")
+        } else {
+            format!("{label}: {value}")
         }
     }
 }

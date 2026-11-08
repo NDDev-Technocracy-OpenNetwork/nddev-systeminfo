@@ -86,7 +86,6 @@ pub(super) struct HighContrast {
     pub flags: u32,
     pub scheme: *mut u16,
 }
-#[cfg(feature = "ui-acceptance")]
 #[repr(C)]
 pub(super) struct Rectangle {
     pub left: i32,
@@ -94,7 +93,6 @@ pub(super) struct Rectangle {
     pub right: i32,
     pub bottom: i32,
 }
-#[cfg(feature = "ui-acceptance")]
 #[repr(C)]
 pub(super) struct MenuBarInfo {
     pub size: u32,
@@ -103,12 +101,26 @@ pub(super) struct MenuBarInfo {
     pub window: Handle,
     pub flags: u32,
 }
+#[repr(C)]
+pub(super) struct MenuItemInfo {
+    pub size: u32,
+    pub mask: u32,
+    pub kind: u32,
+    pub state: u32,
+    pub id: u32,
+    pub submenu: Handle,
+    pub checked: Handle,
+    pub unchecked: Handle,
+    pub data: usize,
+    pub text: *mut u16,
+    pub length: u32,
+    pub bitmap: Handle,
+}
 #[cfg(feature = "ui-acceptance")]
 #[link(name = "dwmapi")]
 unsafe extern "system" {
     pub(super) fn DwmFlush() -> i32;
 }
-#[cfg(feature = "ui-acceptance")]
 #[link(name = "user32")]
 unsafe extern "system" {
     pub(super) fn FindWindowExW(
@@ -118,7 +130,6 @@ unsafe extern "system" {
         title: *const u16,
     ) -> Handle;
     pub(super) fn GetWindowThreadProcessId(window: Handle, pid: *mut u32) -> u32;
-    pub(super) fn GetWindowRect(window: Handle, rect: *mut Rectangle) -> i32;
     pub(super) fn IsWindowVisible(window: Handle) -> i32;
     pub(super) fn GetMenuBarInfo(
         window: Handle,
@@ -127,13 +138,33 @@ unsafe extern "system" {
         info: *mut MenuBarInfo,
     ) -> i32;
     pub(super) fn GetMenuItemCount(menu: Handle) -> i32;
+    pub(super) fn SetMenuItemInfoW(
+        menu: Handle,
+        item: u32,
+        position: i32,
+        info: *const MenuItemInfo,
+    ) -> i32;
+    pub(super) fn InvalidateRect(window: Handle, rectangle: *const Rectangle, erase: i32) -> i32;
+    pub(super) fn UpdateWindow(window: Handle) -> i32;
+}
+#[cfg(feature = "ui-acceptance")]
+#[link(name = "user32")]
+unsafe extern "system" {
+    pub(super) fn GetWindowRect(window: Handle, rect: *mut Rectangle) -> i32;
+    pub(super) fn GetMenuStringW(
+        menu: Handle,
+        item: u32,
+        text: *mut u16,
+        length: i32,
+        flags: u32,
+    ) -> i32;
+    pub(super) fn GetMenuState(menu: Handle, item: u32, flags: u32) -> u32;
     pub(super) fn GetMenuItemRect(
         window: Handle,
         menu: Handle,
         item: u32,
         rect: *mut Rectangle,
     ) -> i32;
-    pub(super) fn UpdateWindow(window: Handle) -> i32;
     pub(super) fn GetDC(window: Handle) -> Handle;
     pub(super) fn ReleaseDC(window: Handle, dc: Handle) -> i32;
 }
