@@ -1,6 +1,82 @@
 //! Native CI capture of this process's visible popup, never another app's UI.
-use super::{ffi::*, popup_window};
+use super::{Tray, ffi::*, popup_window};
 use std::{io, mem::size_of, path::Path, ptr::null_mut};
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Keyboard {
+    key: u16,
+    scan: u16,
+    flags: u32,
+    time: u32,
+    extra: usize,
+}
+#[repr(C)]
+union InputData {
+    keyboard: Keyboard,
+    storage: [usize; 4],
+}
+#[repr(C)]
+struct Input {
+    kind: u32,
+    data: InputData,
+}
+#[link(name = "user32")]
+unsafe extern "system" {
+    fn GetForegroundWindow() -> Handle;
+    fn AttachThreadInput(source: u32, target: u32, attach: i32) -> i32;
+    fn SendInput(count: u32, input: *const Input, size: i32) -> u32;
+}
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetCurrentThreadId() -> u32;
+}
+struct Attachment(u32, u32);
+impl Drop for Attachment {
+    fn drop(&mut self) {
+        unsafe {
+            AttachThreadInput(self.0, self.1, 0);
+        }
+    }
+}
+fn disposable_desktop() -> io::Result<()> {
+    if std::env::var("GITHUB_ACTIONS").as_deref() != Ok("true")
+        || std::env::var_os("RUNNER_TEMP").is_none()
+    {
+        return Err(io::Error::other(
+            "keyboard acceptance requires a disposable GitHub desktop",
+        ));
+    }
+    Ok(())
+}
+/// Acquire foreground before opening the menu, on its creator thread. Input
+/// queues are detached before returning; no owner desktop is used by this test.
+pub fn focus(tray: &Tray) -> io::Result<()> {
+    disposable_desktop()?;
+    // SAFETY: Tray's !Send ownership keeps this call on the window's creator
+    // thread. Borrowed foreground handles and attached queues live only here.
+    unsafe {
+        let current = GetCurrentThreadId();
+        let foreground = GetWindowThreadProcessId(GetForegroundWindow(), null_mut());
+        let _attachment = if foreground != 0 && foreground != current {
+            if AttachThreadInput(current, foreground, 1) == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Some(Attachment(current, foreground))
+        } else {
+            None
+        };
+        SetForegroundWindow(tray.window);
+        let mut owner = 0;
+        GetWindowThreadProcessId(GetForegroundWindow(), &mut owner);
+        if owner != std::process::id() {
+            return Err(io::Error::other(
+                "native test window did not acquire foreground",
+            ));
+        }
+    }
+    Ok(())
+}
 
 pub fn capture_popup(path: &Path) -> io::Result<bool> {
     // SAFETY: only integer handles from Win32 are traversed. A window must belong
@@ -150,12 +226,39 @@ pub fn popup_entries() -> io::Result<Option<Vec<(String, bool)>>> {
 /// Deliver End/Enter only to this process's native popup, never to another
 /// application's foreground window. The caller must observe the real command.
 pub fn choose_last_action() -> io::Result<()> {
-    let window = popup_window(None).ok_or_else(|| io::Error::other("owned popup missing"))?;
-    // SAFETY: integer keyboard messages target the owned borrowed popup HWND;
-    // no global input injection, pointers or foreign application are involved.
-    for key in [0x23usize, 0x0d] {
-        if unsafe { PostMessageW(window, 0x100, key, 1) } == 0
-            || unsafe { PostMessageW(window, 0x101, key, 0xc0000001) } == 0
+    disposable_desktop()?;
+    popup_window(None).ok_or_else(|| io::Error::other("owned popup missing"))?;
+    // SAFETY: input is sent only after checking that this disposable process
+    // owns foreground. The OS copies four initialized keyboard records. Posted
+    // window messages are insufficient for the native menu's real input loop.
+    unsafe {
+        let mut owner = 0;
+        GetWindowThreadProcessId(GetForegroundWindow(), &mut owner);
+        if owner != std::process::id() {
+            return Err(io::Error::other(
+                "keyboard target is not our foreground window",
+            ));
+        }
+        let mut input: [Input; 4] = std::mem::zeroed();
+        for (entry, (key, flags)) in
+            input
+                .iter_mut()
+                .zip([(0x23, 1), (0x23, 3), (0x0d, 0), (0x0d, 2)])
+        {
+            entry.kind = 1;
+            entry.data.keyboard = Keyboard {
+                key,
+                scan: 0,
+                flags,
+                time: 0,
+                extra: 0,
+            };
+        }
+        if SendInput(
+            input.len() as u32,
+            input.as_ptr(),
+            size_of::<Input>() as i32,
+        ) != input.len() as u32
         {
             return Err(io::Error::last_os_error());
         }

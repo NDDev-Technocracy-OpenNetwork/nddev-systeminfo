@@ -75,6 +75,7 @@ mod desktop {
             )
             .unwrap()
             .unwrap();
+            tray::acceptance::focus(&tray).unwrap();
             let proxy = tray.proxy();
             let capture = proxy.clone();
             let path = artifacts.join(format!("{code}-{theme}.png"));
