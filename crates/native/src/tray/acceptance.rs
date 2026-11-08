@@ -98,6 +98,58 @@ pub fn capture_popup(path: &Path) -> io::Result<bool> {
         {
             return Ok(false);
         }
+        capture_window(window, path)
+    }
+}
+fn dashboard_window() -> Option<Handle> {
+    // SAFETY: borrowed handle is accepted only for our own visible window.
+    unsafe {
+        let window = FindWindowW(
+            super::wide("org.nddev.systeminfo.analysis").as_ptr(),
+            std::ptr::null(),
+        );
+        let mut owner = 0;
+        if window.is_null() || IsWindowVisible(window) == 0 {
+            return None;
+        }
+        GetWindowThreadProcessId(window, &mut owner);
+        (owner == std::process::id()).then_some(window)
+    }
+}
+pub fn dashboard_visible() -> bool {
+    dashboard_window().is_some()
+}
+pub fn capture_dashboard(path: &Path) -> io::Result<bool> {
+    let Some(window) = dashboard_window() else {
+        return Ok(false);
+    };
+    capture_window(window, path)
+}
+pub fn click_dashboard(id: u32) -> io::Result<bool> {
+    disposable_desktop()?;
+    let Some(window) = dashboard_window() else {
+        return Ok(false);
+    };
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetDlgItem(window: Handle, id: i32) -> Handle;
+        fn SendMessageW(window: Handle, message: u32, wparam: usize, lparam: isize) -> isize;
+    }
+    // SAFETY: the standard button belongs to the verified owned window. Its
+    // normal BM_CLICK path generates the same BN_CLICKED command as input.
+    unsafe {
+        let button = GetDlgItem(window, id as i32);
+        if button.is_null() {
+            return Ok(false);
+        }
+        SendMessageW(button, 0x00f5, 0, 0);
+        Ok(true)
+    }
+}
+fn capture_window(window: Handle, path: &Path) -> io::Result<bool> {
+    // SAFETY: callers verified that this visible window belongs to this process;
+    // bitmap dimensions are bounded before allocating and GDI ownership balances.
+    unsafe {
         UpdateWindow(window);
         DwmFlush();
         let mut rect = Rectangle {

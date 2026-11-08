@@ -54,6 +54,7 @@ mod desktop {
             .unwrap()
             .join(".tools/ui-windows");
         fs::create_dir_all(&artifacts).unwrap();
+        analysis_windows(&socket, &artifacts);
         for (code, theme) in [
             ("en", "light"),
             ("ru", "dark"),
@@ -142,6 +143,101 @@ mod desktop {
             "{\"native_popup\":true,\"real_provider\":true,\"native_keyboard_quit\":true,\"open_menu_disconnect_clears_all_12\":true,\"copy_disabled_offline\":true,\"locales\":5,\"themes\":4}\n",
         )
         .unwrap();
+    }
+
+    fn analysis_windows(socket: &Path, artifacts: &Path) {
+        use nddev_systeminfo::analysis::{Selection, Store};
+        let mut client =
+            Client::connect_analysis(socket, 0, Duration::from_secs(5), false).unwrap();
+        let mut store = Store::default();
+        for _ in 0..3 {
+            store.push(client.next_analysis().unwrap().unwrap());
+        }
+        let cpu = store.view(&Selection::parse("cpu.usage").unwrap(), 3600, 512);
+        let id = cpu.latest.as_ref().unwrap().detail.cores[0].id;
+        let core_key = format!("core:{id}");
+        let core = store.view(&Selection::parse(&core_key).unwrap(), 3600, 512);
+        for (code, theme) in [
+            ("en", "light"),
+            ("ru", "dark"),
+            ("kk", "light-contrast"),
+            ("ar", "dark-contrast"),
+            ("zh", "light"),
+        ] {
+            let mut config = Config::parse(nddev_systeminfo::config::DEFAULT_TOML).unwrap();
+            config.display.locale = code.into();
+            config.display.theme = theme.into();
+            let tray = Tray::new(
+                &format!(
+                    "org.nddev.systeminfo.analysis.acceptance.{}.{code}",
+                    std::process::id()
+                ),
+                nddev_systeminfo::windows_ui::native_model(
+                    &config,
+                    Some(&cpu.latest.as_ref().unwrap().sample),
+                ),
+            )
+            .unwrap()
+            .unwrap();
+            tray::acceptance::focus(&tray).unwrap();
+            let proxy = tray.proxy();
+            proxy.dashboard(Some(nddev_systeminfo::windows_ui::native_analysis_model(
+                &config,
+                &cpu,
+                Some("cpu.usage"),
+            )));
+            let capture = proxy.clone();
+            let path = artifacts.join(format!("analysis-{code}-{theme}.png"));
+            let core_path = artifacts.join(format!("core-{code}-{theme}.png"));
+            let (sender, receiver) = mpsc::sync_channel(2);
+            let photographer = thread::spawn(move || {
+                let _close = Close(capture.clone());
+                let deadline = Instant::now() + Duration::from_secs(15);
+                while !tray::acceptance::capture_dashboard(&path).unwrap() {
+                    assert!(
+                        Instant::now() < deadline,
+                        "native analysis window did not become visible"
+                    );
+                    thread::sleep(Duration::from_millis(10));
+                }
+                assert!(tray::acceptance::click_dashboard(11000).unwrap());
+                assert_eq!(
+                    receiver.recv_timeout(Duration::from_secs(3)).unwrap(),
+                    11000
+                );
+                // The event handler publishes the actual core projection before
+                // acknowledging the action. Capture after that HWND update.
+                thread::sleep(Duration::from_millis(100));
+                assert!(tray::acceptance::capture_dashboard(&core_path).unwrap());
+                assert!(tray::acceptance::click_dashboard(tray::dashboard::CLOSED).unwrap());
+                assert_eq!(
+                    receiver.recv_timeout(Duration::from_secs(3)).unwrap(),
+                    tray::dashboard::CLOSED
+                );
+                while tray::acceptance::dashboard_visible() {
+                    assert!(Instant::now() < deadline, "closed analysis HWND leaked");
+                    thread::sleep(Duration::from_millis(10));
+                }
+            });
+            tray.run(|event, proxy| {
+                if let tray::Event::Command(id) = event {
+                    match id {
+                        11000 => proxy.dashboard(Some(
+                            nddev_systeminfo::windows_ui::native_analysis_model(
+                                &config,
+                                &core,
+                                Some(&core_key),
+                            ),
+                        )),
+                        tray::dashboard::CLOSED => proxy.dashboard(None),
+                        _ => panic!("unexpected analysis command {id}"),
+                    }
+                    sender.send(id).unwrap();
+                }
+            })
+            .unwrap();
+            photographer.join().unwrap();
+        }
     }
 }
 fn main() {

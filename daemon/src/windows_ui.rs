@@ -33,6 +33,14 @@ struct State {
 }
 type Shared = Arc<(Mutex<State>, Condvar)>;
 
+pub fn native_analysis_model(
+    config: &Config,
+    view: &crate::analysis::View,
+    selected: Option<&str>,
+) -> tray::dashboard::Model {
+    crate::windows_analysis::native_model(config, view, selected)
+}
+
 /// A native frontend and its acceptance harness consume the same presentation
 /// model. This function owns no collector, window, timer or background process.
 pub fn native_model(config: &Config, sample: Option<&WireSnapshot>) -> Model {

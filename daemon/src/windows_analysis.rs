@@ -71,6 +71,37 @@ struct State {
     generation: u64,
     cancel: Option<Cancellation>,
 }
+impl State {
+    fn new(config: Config) -> Self {
+        let resource: Resource =
+            serde_json::from_str(include_str!("../../extension/resources/ui.json"))
+                .expect("checked native resources");
+        let range = resource.analysis.history_seconds;
+        let catalog = Catalog::load(&config.display.locale, &[&tray::system_language()]);
+        Self {
+            config,
+            catalog,
+            resource,
+            open: false,
+            paused: false,
+            selected: None,
+            range,
+            page: 0,
+            view: None,
+            live: false,
+            stopped: false,
+            generation: 0,
+            cancel: None,
+        }
+    }
+}
+pub(super) fn native_model(config: &Config, view: &View, selected: Option<&str>) -> Model {
+    let mut state = State::new(config.clone());
+    state.selected = selected.map(str::to_owned);
+    state.view = Some(view.clone());
+    state.live = true;
+    model(&state)
+}
 type Shared = Arc<(Mutex<State>, Condvar)>;
 pub(super) struct AnalysisUI {
     proxy: Proxy,
@@ -99,33 +130,12 @@ impl AnalysisUI {
     }
     pub(super) fn command(&mut self, id: u32, config: &Config) -> bool {
         if id == dashboard::OPEN && self.worker.is_none() {
-            let resource: Resource =
-                serde_json::from_str(include_str!("../../extension/resources/ui.json"))
-                    .expect("checked native resources");
-            let range = resource.analysis.history_seconds;
-            let shared = Arc::new((
-                Mutex::new(State {
-                    config: config.clone(),
-                    catalog: Catalog::load(&config.display.locale, &[&tray::system_language()]),
-                    resource,
-                    open: false,
-                    paused: false,
-                    selected: None,
-                    range,
-                    page: 0,
-                    view: None,
-                    live: false,
-                    stopped: false,
-                    generation: 0,
-                    cancel: None,
-                }),
-                Condvar::new(),
-            ));
+            let shared = Arc::new((Mutex::new(State::new(config.clone())), Condvar::new()));
             let worker_state = shared.clone();
             let proxy = self.proxy.clone();
             match thread::Builder::new()
                 .name("analysis-reader".into())
-                .stack_size(256 * 1024)
+                .stack_size(config.transport.accept_stack_bytes.max(128 * 1024))
                 .spawn(move || collect(worker_state, proxy))
             {
                 Ok(worker) => self.worker = Some((shared, worker)),

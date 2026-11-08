@@ -81,7 +81,7 @@ async function exercise() {
     indicator.menu.close();
     // A real cell opens the separate GTK window. Drive its standard controls
     // through accessibility, then validate the real Rust model on the clipboard.
-    indicator._cellItems[0].button.emit('clicked');
+    indicator._cellItems[0].button.emit('clicked', 1);
     const analysisTitle = extension._settings.text('app_title');
     await until(() => global.get_window_actors().some(actor => actor.meta_window.get_title() === analysisTitle));
     const analysis = global.get_window_actors().find(actor => actor.meta_window.get_title() === analysisTitle);
