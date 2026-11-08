@@ -241,7 +241,7 @@ mod tests {
             let mut byte = [0];
             let _ = socket.read(&mut byte);
         });
-        let mut client = Client::connect(&peer.path, 60, Duration::from_secs(5)).unwrap();
+        let mut client = Client::connect(&peer.path, 0, Duration::from_secs(5)).unwrap();
         let cancellation = client.cancellation().unwrap();
         let (done, wait) = std::sync::mpsc::sync_channel(1);
         let task = thread::spawn(move || done.send(client.next_sample().is_err()).unwrap());
