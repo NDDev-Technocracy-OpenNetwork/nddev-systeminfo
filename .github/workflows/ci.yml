@@ -163,8 +163,8 @@ jobs:
           persist-credentials: false
       - run: swiftc -target "$(uname -m)-apple-macosx12.0" -swift-version 6 -parse-as-library -warnings-as-errors -O -framework AppKit macos/*.swift -o /tmp/rldyour-sysinfo-app
       - run: |
-          swiftc -swift-version 6 -parse-as-library -warnings-as-errors macos/Sample.swift macos/tests/ProtocolTests.swift -o /tmp/sysinfo-protocol-tests
-          /tmp/sysinfo-protocol-tests
+          swiftc -swift-version 6 -parse-as-library -warnings-as-errors macos/Sample.swift macos/Presentation.swift macos/tests/ProtocolTests.swift -o /tmp/sysinfo-protocol-tests
+          /tmp/sysinfo-protocol-tests extension/resources/ui.json
       - run: plutil -lint macos/*.plist
 
   extension:

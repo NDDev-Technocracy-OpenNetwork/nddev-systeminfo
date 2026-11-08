@@ -200,6 +200,7 @@ fn generate() -> Result {
     fs::create_dir_all("extension/resources")?;
     fs::write("extension/resources/ui.json", ui_resource()?)?;
     fs::write("extension/lib/contract.js", js_contract()?)?;
+    fs::write("macos/Sample.swift", swift_contract()?)?;
     fs::write("extension/resources/brand-symbolic.svg", brand_svg())?;
     Ok(())
 }
@@ -254,6 +255,77 @@ fn js_contract() -> Result<String> {
         schema["x-cadence"]["realtime-ms"],
         serde_json::to_string_pretty(&metrics)?
     ))
+}
+fn swift_contract() -> Result<String> {
+    use std::fmt::Write;
+    let schema: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string("contracts/snapshot-v1.schema.json")?)?;
+    let mut result = format!(
+        "// Generated from contracts/snapshot-v1.schema.json; do not edit.\nimport Foundation\n\nenum WireContract {{\n    static let version = {}\n    static let maxFrame = {}\n    static let maxInterval = {}\n    static let realtimeMs = {}\n}}\n\nstruct MetricSample: Codable, Sendable {{\n",
+        schema["properties"]["v"]["const"],
+        schema["x-max-frame-bytes"],
+        schema["x-cadence"]["maximum-seconds"],
+        schema["x-cadence"]["realtime-ms"]
+    );
+    let groups = schema["x-groups"]
+        .as_array()
+        .ok_or("schema groups missing")?;
+    for group in groups {
+        let name = group.as_str().ok_or("invalid group")?;
+        let title = name.to_uppercase();
+        writeln!(result, "    struct {title}: Codable, Sendable {{")?;
+        let fields = schema["properties"][name]["x-fields"]
+            .as_array()
+            .ok_or("schema fields missing")?;
+        for key in fields {
+            let key = key.as_str().ok_or("invalid field")?;
+            let kind = if schema["properties"][name]["properties"][key]["type"][0] == "integer" {
+                "UInt64"
+            } else {
+                "Double"
+            };
+            writeln!(result, "        let {key}: {kind}?")?;
+        }
+        result.push_str("        init(from decoder: any Decoder) throws {\n            let values = try decoder.container(keyedBy: CodingKeys.self)\n");
+        for key in fields {
+            let key = key.as_str().ok_or("invalid field")?;
+            let field = &schema["properties"][name]["properties"][key];
+            let integer = field["type"][0] == "integer";
+            let kind = if integer { "UInt64" } else { "Double" };
+            writeln!(
+                result,
+                "            {key} = try values.decode({kind}?.self, forKey: .{key})"
+            )?;
+            if !integer {
+                let range = if field["x-unit"] == "percent" {
+                    " && (0...100).contains(value)"
+                } else {
+                    ""
+                };
+                writeln!(
+                    result,
+                    "            if let value = {key}, !(value.isFinite{range}) {{\n                throw DecodingError.dataCorruptedError(forKey: .{key}, in: values, debugDescription: \"Invalid metric\")\n            }}"
+                )?;
+            }
+        }
+        result.push_str("        }\n    }\n");
+    }
+    result.push_str("    let v: Int\n");
+    for group in groups {
+        let name = group.as_str().ok_or("invalid group")?;
+        writeln!(result, "    let {name}: {}", name.to_uppercase())?;
+    }
+    result.push_str("    init(from decoder: any Decoder) throws {\n        let values = try decoder.container(keyedBy: CodingKeys.self)\n        v = try values.decode(Int.self, forKey: .v)\n        guard v == WireContract.version else {\n            throw DecodingError.dataCorruptedError(forKey: .v, in: values, debugDescription: \"Unsupported protocol version\")\n        }\n");
+    for group in groups {
+        let name = group.as_str().ok_or("invalid group")?;
+        writeln!(
+            result,
+            "        {name} = try values.decode({}.self, forKey: .{name})",
+            name.to_uppercase()
+        )?;
+    }
+    result.push_str("    }\n}\n");
+    Ok(result)
 }
 fn ui_resource() -> Result<String> {
     use nddev_opennetwork_design_tokens::{
@@ -321,6 +393,9 @@ fn check() -> Result {
     }
     if fs::read_to_string("extension/lib/contract.js")? != js_contract()? {
         return Err("native wire contract drifted; run just generate".into());
+    }
+    if fs::read_to_string("macos/Sample.swift")? != swift_contract()? {
+        return Err("native Swift wire contract drifted; run just generate".into());
     }
     if fs::read_to_string("extension/resources/brand-symbolic.svg")? != brand_svg() {
         return Err("native brand mark drifted; run just generate".into());

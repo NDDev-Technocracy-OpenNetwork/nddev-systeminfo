@@ -1,26 +1,39 @@
 import Foundation
 
-/// All mutable state belongs to the serial queue. The Sendable callback carries
-/// value-type samples only; AppKit is never accessed on this queue.
+/// Every descriptor, source and buffer is confined to this serial queue. Values
+/// cross to AppKit through a Sendable callback; cancellation never blocks it.
 final class MetricsClient: @unchecked Sendable {
     enum Event: Sendable { case sample(MetricSample); case offline }
-    private let queue = DispatchQueue(label: "com.nddev-opennetwork.rldyour-sysinfo.socket", qos: .utility)
+    private let queue = DispatchQueue(label: "org.nddev.systeminfo.socket", qos: .utility)
     private let onEvent: @Sendable (Event) -> Void
     private let interval: Int
     private let path: String
+    private let timeout: Double
+    private let retrySeconds: Double
     private var reader: DispatchSourceRead?
+    private var writer: DispatchSourceWrite?
+    private var readerResumed = false
     private var retry: DispatchWorkItem?
+    private var deadline: DispatchWorkItem?
+    private var generation: UInt64 = 0
+    private var bytes = [UInt8](repeating: 0, count: WireContract.maxFrame)
     private var buffer = Data()
+    private let announcement: Data
+    private var written = 0
     private let decoder = JSONDecoder()
     private var stopped = false
-    private static let maxLine = 4096
 
-    init(interval: Int, path: String = FileManager.default.homeDirectoryForCurrentUser
-         .appendingPathComponent("Library/Application Support/rldyour-sysinfo/rldyour-sysinfo.sock").path,
+    init(interval: Int, timeoutMs: Int = 5000, reconnectSeconds: Int = 5,
+         path: String = FileManager.default.homeDirectoryForCurrentUser
+             .appendingPathComponent("Library/Application Support/rldyour-sysinfo/rldyour-sysinfo.sock").path,
          onEvent: @escaping @Sendable (Event) -> Void) {
-        self.interval = min(max(interval, 0), 60)
+        self.interval = min(max(interval, 0), WireContract.maxInterval)
         self.path = path
+        self.timeout = Double(timeoutMs) / 1000
+        self.retrySeconds = Double(reconnectSeconds)
         self.onEvent = onEvent
+        self.announcement = Data("{\"interval\":\(self.interval)}\n".utf8)
+        buffer.reserveCapacity(WireContract.maxFrame)
     }
 
     func start() { queue.async { self.connect() } }
@@ -42,8 +55,8 @@ final class MetricsClient: @unchecked Sendable {
         defer { if ownsFD { Darwin.close(fd) } }
         var noSigPipe: Int32 = 1
         guard setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size)) == 0,
-              fcntl(fd, F_SETFD, FD_CLOEXEC) == 0 else { return reconnect() }
-
+              fcntl(fd, F_SETFD, FD_CLOEXEC) == 0,
+              fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK) == 0 else { return reconnect() }
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         guard path.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { return reconnect() }
@@ -57,22 +70,51 @@ final class MetricsClient: @unchecked Sendable {
                 Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        guard connected == 0 else { return reconnect() }
-        let announcement = Data("{\"interval\":\(interval)}\n".utf8)
-        let written = announcement.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
-        guard written == announcement.count,
-              fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK) == 0 else { return reconnect() }
-
-        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-        source.setEventHandler { [weak self] in self?.read(fd) }
-        source.setCancelHandler { Darwin.close(fd) }
-        reader = source
+        guard connected == 0 || errno == EINPROGRESS else { return reconnect() }
+        let current = generation
+        let readSource = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+        readSource.setEventHandler { [weak self] in
+            guard let self, self.generation == current else { return }
+            self.read(fd)
+        }
+        // The read source alone owns the descriptor, even during connection.
+        readSource.setCancelHandler { Darwin.close(fd) }
+        reader = readSource
         ownsFD = false
-        source.resume()
+        let writeSource = DispatchSource.makeWriteSource(fileDescriptor: fd, queue: queue)
+        writeSource.setEventHandler { [weak self] in
+            guard let self, self.generation == current else { return }
+            self.handshake(fd)
+        }
+        writer = writeSource
+        armDeadline(seconds: timeout)
+        writeSource.resume()
+    }
+
+    private func handshake(_ fd: Int32) {
+        var error: Int32 = 0
+        var length = socklen_t(MemoryLayout<Int32>.size)
+        guard getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &length) == 0, error == 0 else { return reconnect() }
+        while written < announcement.count {
+            let count = announcement.withUnsafeBytes {
+                Darwin.write(fd, $0.baseAddress!.advanced(by: written), $0.count - written)
+            }
+            if count < 0 {
+                if errno == EINTR { continue }
+                if errno == EAGAIN || errno == EWOULDBLOCK { return }
+                return reconnect()
+            }
+            guard count > 0 else { return reconnect() }
+            written += count
+        }
+        writer?.cancel()
+        writer = nil
+        readerResumed = true
+        reader?.resume()
+        armFrameDeadline()
     }
 
     private func read(_ fd: Int32) {
-        var bytes = [UInt8](repeating: 0, count: Self.maxLine)
         while true {
             let count = Darwin.read(fd, &bytes, bytes.count)
             if count < 0 {
@@ -81,26 +123,48 @@ final class MetricsClient: @unchecked Sendable {
                 return reconnect()
             }
             if count == 0 { return reconnect() }
-            buffer.append(contentsOf: bytes.prefix(count))
-            while let newline = buffer.firstIndex(of: 10) {
-                guard buffer.distance(from: buffer.startIndex, to: newline) <= Self.maxLine else { return reconnect() }
-                let line = buffer.prefix(upTo: newline)
-                guard let sample = try? decoder.decode(MetricSample.self, from: line), sample.v == 1 else {
-                    return reconnect()
+            for byte in bytes.prefix(count) {
+                if byte == 10 {
+                    guard let sample = try? decoder.decode(MetricSample.self, from: buffer) else { return reconnect() }
+                    buffer.removeAll(keepingCapacity: true)
+                    onEvent(.sample(sample))
+                    armFrameDeadline()
+                } else {
+                    guard buffer.count < WireContract.maxFrame else { return reconnect() }
+                    buffer.append(byte)
                 }
-                buffer.removeSubrange(...newline)
-                onEvent(.sample(sample))
             }
-            if buffer.count > Self.maxLine { return reconnect() }
         }
     }
 
+    private func armFrameDeadline() {
+        // A frame has one absolute deadline. Partial/trickled bytes never extend it.
+        let cadence = interval == 0 ? Double(WireContract.realtimeMs) / 1000 : Double(interval)
+        armDeadline(seconds: cadence + timeout)
+    }
+    private func armDeadline(seconds: Double) {
+        deadline?.cancel()
+        let current = generation
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.generation == current, !self.stopped else { return }
+            self.reconnect()
+        }
+        deadline = work
+        queue.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
     private func close() {
+        generation &+= 1
+        deadline?.cancel()
+        deadline = nil
+        writer?.cancel()
+        writer = nil
         reader?.cancel()
+        if !readerResumed { reader?.resume() }
         reader = nil
+        readerResumed = false
+        written = 0
         buffer.removeAll(keepingCapacity: true)
     }
-
     private func reconnect() {
         close()
         guard !stopped else { return }
@@ -108,6 +172,6 @@ final class MetricsClient: @unchecked Sendable {
         retry?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.connect() }
         retry = work
-        queue.asyncAfter(deadline: .now() + 5, execute: work)
+        queue.asyncAfter(deadline: .now() + retrySeconds, execute: work)
     }
 }
