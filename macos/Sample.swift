@@ -10,6 +10,7 @@ enum WireContract {
 
 struct MetricSample: Codable, Sendable {
     struct CPU: Codable, Sendable {
+        enum CodingKeys: String, CodingKey { case usage, temp }
         let usage: Double?
         let temp: Double?
         init(from decoder: any Decoder) throws {
@@ -30,6 +31,7 @@ struct MetricSample: Codable, Sendable {
         }
     }
     struct MEMORY: Codable, Sendable {
+        enum CodingKeys: String, CodingKey { case used, swap }
         let used: Double?
         let swap: Double?
         init(from decoder: any Decoder) throws {
@@ -50,6 +52,7 @@ struct MetricSample: Codable, Sendable {
         }
     }
     struct GPU: Codable, Sendable {
+        enum CodingKeys: String, CodingKey { case usage, memory, temp }
         let usage: Double?
         let memory: Double?
         let temp: Double?
@@ -76,6 +79,7 @@ struct MetricSample: Codable, Sendable {
         }
     }
     struct DISK: Codable, Sendable {
+        enum CodingKeys: String, CodingKey { case read, write, temp }
         let read: UInt64?
         let write: UInt64?
         let temp: Double?
@@ -96,6 +100,7 @@ struct MetricSample: Codable, Sendable {
         }
     }
     struct NET: Codable, Sendable {
+        enum CodingKeys: String, CodingKey { case rx, tx }
         let rx: UInt64?
         let tx: UInt64?
         init(from decoder: any Decoder) throws {
