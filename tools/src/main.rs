@@ -254,6 +254,9 @@ fn generate() -> Result {
     fs::write("assets/brand-mask-64.bin", brand_mask()?)?;
     fs::write("extension/resources/brand-symbolic.svg", brand_svg())?;
     fs::write("daemon/src/config/defaults.rs", rust_defaults()?)?;
+    for name in ["LICENSE", "NOTICE"] {
+        fs::copy(name, Path::new("python").join(name))?;
+    }
     Ok(())
 }
 fn rust_defaults() -> Result<String> {
@@ -548,6 +551,11 @@ fn ui_resource() -> Result<String> {
     Ok(serde_json::to_string_pretty(&data)? + "\n")
 }
 fn check() -> Result {
+    for name in ["LICENSE", "NOTICE"] {
+        if fs::read(name)? != fs::read(Path::new("python").join(name))? {
+            return Err("generated SDK license notices drifted; run just generate".into());
+        }
+    }
     let version = version()?;
     if fs::read_to_string("daemon/src/config/defaults.rs")? != rust_defaults()? {
         return Err("compiled defaults drifted; run just generate".into());

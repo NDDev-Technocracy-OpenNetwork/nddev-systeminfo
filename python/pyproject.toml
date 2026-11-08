@@ -11,6 +11,7 @@ classifiers = [
 ]
 description = "Dependency-free Python client for NDDev Systeminfo local metrics"
 license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 name = "rldyour-sysinfo"
 readme = "README.md"
 requires-python = ">=3.9"
