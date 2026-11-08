@@ -1,6 +1,10 @@
 //! Native CI capture of this process's visible popup, never another app's UI.
 use super::{Tray, ffi::*, popup_window};
 use std::{io, mem::size_of, path::Path, ptr::null_mut};
+use std::{
+    thread,
+    time::{Duration, Instant},
+};
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -21,11 +25,24 @@ struct Input {
     kind: u32,
     data: InputData,
 }
+#[repr(C)]
+struct GuiThreadInfo {
+    size: u32,
+    flags: u32,
+    active: Handle,
+    focus: Handle,
+    capture: Handle,
+    menu_owner: Handle,
+    move_size: Handle,
+    caret: Handle,
+    caret_rect: Rectangle,
+}
 #[link(name = "user32")]
 unsafe extern "system" {
     fn GetForegroundWindow() -> Handle;
     fn AttachThreadInput(source: u32, target: u32, attach: i32) -> i32;
     fn SendInput(count: u32, input: *const Input, size: i32) -> u32;
+    fn GetGUIThreadInfo(thread: u32, information: *mut GuiThreadInfo) -> i32;
 }
 #[link(name = "kernel32")]
 unsafe extern "system" {
@@ -240,12 +257,17 @@ pub fn choose_last_action() -> io::Result<()> {
                 "keyboard target is not our foreground window",
             ));
         }
-        let mut input: [Input; 4] = std::mem::zeroed();
-        for (entry, (key, flags)) in
-            input
-                .iter_mut()
-                .zip([(0x23, 1), (0x23, 3), (0x0d, 0), (0x0d, 2)])
-        {
+        let mut info: GuiThreadInfo = std::mem::zeroed();
+        info.size = size_of::<GuiThreadInfo>() as u32;
+        if GetGUIThreadInfo(0, &mut info) == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        eprintln!(
+            "native input state: flags={:#x}, active={:?}, focus={:?}, menu_owner={:?}",
+            info.flags, info.active, info.focus, info.menu_owner
+        );
+        let mut input: [Input; 2] = std::mem::zeroed();
+        for (entry, (key, flags)) in input.iter_mut().zip([(0x23, 1), (0x23, 3)]) {
             entry.kind = 1;
             entry.data.keyboard = Keyboard {
                 key,
@@ -254,6 +276,43 @@ pub fn choose_last_action() -> io::Result<()> {
                 time: 0,
                 extra: 0,
             };
+        }
+        if SendInput(
+            input.len() as u32,
+            input.as_ptr(),
+            size_of::<Input>() as i32,
+        ) != input.len() as u32
+        {
+            return Err(io::Error::last_os_error());
+        }
+        // Observe the real menu selection before Enter. This distinguishes an
+        // input-routing failure from a lost command callback without guessing
+        // how long this runner takes to consume keyboard input.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let window = popup_window(None)
+                .ok_or_else(|| io::Error::other("menu closed before selection"))?;
+            let mut menu: MenuBarInfo = std::mem::zeroed();
+            menu.size = size_of::<MenuBarInfo>() as u32;
+            if GetMenuBarInfo(window, -4, 0, &mut menu) == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            let count = GetMenuItemCount(menu.menu);
+            let state = GetMenuState(menu.menu, (count - 1) as u32, 0x400);
+            if state & 0x80 != 0 {
+                break;
+            }
+            if Instant::now() >= deadline {
+                return Err(io::Error::other(format!(
+                    "End did not select the last native action: state={state:#x}, GUI flags={:#x}, focus={:?}",
+                    info.flags, info.focus
+                )));
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        for (entry, flags) in input.iter_mut().zip([0, 2]) {
+            entry.data.keyboard.key = 0x0d;
+            entry.data.keyboard.flags = flags;
         }
         if SendInput(
             input.len() as u32,
