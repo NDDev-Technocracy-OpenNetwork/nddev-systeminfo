@@ -1,6 +1,80 @@
 //! Native CI capture of this process's visible popup, never another app's UI.
-use super::{ffi::*, popup_window};
+use super::{Tray, ffi::*, popup_window};
 use std::{io, mem::size_of, path::Path, ptr::null_mut};
+use std::{
+    thread,
+    time::{Duration, Instant},
+};
+
+#[repr(C)]
+struct GuiThreadInfo {
+    size: u32,
+    flags: u32,
+    active: Handle,
+    focus: Handle,
+    capture: Handle,
+    menu_owner: Handle,
+    move_size: Handle,
+    caret: Handle,
+    caret_rect: Rectangle,
+}
+#[link(name = "user32")]
+unsafe extern "system" {
+    fn GetForegroundWindow() -> Handle;
+    fn AttachThreadInput(source: u32, target: u32, attach: i32) -> i32;
+    fn GetGUIThreadInfo(thread: u32, information: *mut GuiThreadInfo) -> i32;
+}
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetCurrentThreadId() -> u32;
+}
+struct Attachment(u32, u32);
+impl Drop for Attachment {
+    fn drop(&mut self) {
+        unsafe {
+            AttachThreadInput(self.0, self.1, 0);
+        }
+    }
+}
+fn disposable_desktop() -> io::Result<()> {
+    if std::env::var("GITHUB_ACTIONS").as_deref() != Ok("true")
+        || std::env::var_os("RUNNER_TEMP").is_none()
+    {
+        return Err(io::Error::other(
+            "keyboard acceptance requires a disposable GitHub desktop",
+        ));
+    }
+    Ok(())
+}
+/// Acquire foreground before opening the menu, on its creator thread. Input
+/// queues are detached before returning; no owner desktop is used by this test.
+pub fn focus(tray: &Tray) -> io::Result<()> {
+    disposable_desktop()?;
+    // SAFETY: Tray's !Send ownership keeps this call on the window's creator
+    // thread. Borrowed foreground handles and attached queues live only here.
+    unsafe {
+        let current = GetCurrentThreadId();
+        let foreground = GetWindowThreadProcessId(GetForegroundWindow(), null_mut());
+        let _attachment = if foreground != 0 && foreground != current {
+            if AttachThreadInput(current, foreground, 1) == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Some(Attachment(current, foreground))
+        } else {
+            None
+        };
+        SetForegroundWindow(tray.window);
+        SetFocus(tray.window);
+        let mut owner = 0;
+        GetWindowThreadProcessId(GetForegroundWindow(), &mut owner);
+        if owner != std::process::id() {
+            return Err(io::Error::other(
+                "native test window did not acquire foreground",
+            ));
+        }
+    }
+    Ok(())
+}
 
 pub fn capture_popup(path: &Path) -> io::Result<bool> {
     // SAFETY: only integer handles from Win32 are traversed. A window must belong
@@ -145,6 +219,76 @@ pub fn popup_entries() -> io::Result<Option<Vec<(String, bool)>>> {
         }
         Ok(Some(entries))
     }
+}
+
+/// Deliver Up/Enter only to this process's native popup, never to another
+/// application's foreground window. The caller must observe the real command.
+pub fn choose_last_action() -> io::Result<()> {
+    disposable_desktop()?;
+    popup_window(None).ok_or_else(|| io::Error::other("owned popup missing"))?;
+    // SAFETY: input is posted only after checking this disposable process owns
+    // foreground and the menu. All arguments are values, with no Rust pointers.
+    unsafe {
+        let mut owner = 0;
+        GetWindowThreadProcessId(GetForegroundWindow(), &mut owner);
+        if owner != std::process::id() {
+            return Err(io::Error::other(
+                "keyboard target is not our foreground window",
+            ));
+        }
+        let mut info: GuiThreadInfo = std::mem::zeroed();
+        info.size = size_of::<GuiThreadInfo>() as u32;
+        if GetGUIThreadInfo(0, &mut info) == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        eprintln!(
+            "native input state: flags={:#x}, active={:?}, focus={:?}, menu_owner={:?}",
+            info.flags, info.active, info.focus, info.menu_owner
+        );
+        let target = info.menu_owner;
+        if target.is_null() {
+            return Err(io::Error::other("native menu owner missing"));
+        }
+        // Address the owning GUI queue. Hosted runners may have a disconnected
+        // input desktop; the modal menu still consumes real WM_KEYDOWN/UP
+        // messages on its owner thread, rather than on the popup HWND.
+        if PostMessageW(target, 0x100, 0x26, 0x01480001) == 0
+            || PostMessageW(target, 0x101, 0x26, 0xc1480001_u32 as isize) == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        // Observe the real menu selection before Enter. This distinguishes an
+        // input-routing failure from a lost command callback without guessing
+        // how long this runner takes to consume keyboard input.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let window = popup_window(None)
+                .ok_or_else(|| io::Error::other("menu closed before selection"))?;
+            let mut menu: MenuBarInfo = std::mem::zeroed();
+            menu.size = size_of::<MenuBarInfo>() as u32;
+            if GetMenuBarInfo(window, -4, 0, &mut menu) == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            let count = GetMenuItemCount(menu.menu);
+            let state = GetMenuState(menu.menu, (count - 1) as u32, 0x400);
+            if state & 0x80 != 0 {
+                break;
+            }
+            if Instant::now() >= deadline {
+                return Err(io::Error::other(format!(
+                    "Up did not select the last native action: state={state:#x}, GUI flags={:#x}, focus={:?}",
+                    info.flags, info.focus
+                )));
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        if PostMessageW(target, 0x100, 0x0d, 0x001c0001) == 0
+            || PostMessageW(target, 0x101, 0x0d, 0xc01c0001_u32 as isize) == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
 }
 fn save_png(path: &Path, width: u32, height: u32, bgra: &[u8]) -> io::Result<()> {
     // PNG's uncompressed DEFLATE blocks keep this test-only encoder independent

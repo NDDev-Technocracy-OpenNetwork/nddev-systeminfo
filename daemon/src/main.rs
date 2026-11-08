@@ -30,13 +30,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let config = Config::load(configuration.as_deref())?;
     telemetry::init(&config.logging.level);
+    let (listener, activated) = transport::bind(socket.as_deref())?;
     tracing::info!(
         event.name = "systeminfo.started",
         service.name = "nddev-systeminfod",
         version = env!("CARGO_PKG_VERSION"),
         gpu = config.sampling.gpu
     );
-    let (listener, activated) = transport::bind(socket.as_deref())?;
     server::serve(listener, activated, &config)?;
     tracing::info!(event.name = "systeminfo.stopped", reason = "idle");
     Ok(())

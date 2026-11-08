@@ -21,20 +21,6 @@ jobs:
     with:
       setup: true
 
-  lint:
-    name: Lint and metadata
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y shellcheck init-system-helpers
-      - run: shellcheck scripts/*.sh install.sh uninstall.sh install-macos.sh uninstall-macos.sh packaging/deb/postinst packaging/deb/prerm packaging/deb/postrm
-      - run: ./scripts/check-deb-lifecycle.sh
-
   daemon:
     name: Daemon (${{ matrix.os }})
     strategy:
@@ -53,8 +39,13 @@ jobs:
         with:
           ecosystems: cargo
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libglib2.0-bin
+      - name: Native installation lifecycle
+        timeout-minutes: 4
+        run: cargo run --locked --package systeminfo-tools -- install-test
       - name: Real Windows menu acceptance
-        if: runner.os == 'Windows'
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
         run: cargo run --locked --package systeminfo-tools -- ui-windows
       - run: cargo run --locked --package systeminfo-tools -- setup
         env:
@@ -63,103 +54,22 @@ jobs:
       - run: cargo clippy --locked --package nddev-systeminfo --all-targets --no-default-features -- -D warnings
       - run: cargo build --release --locked --workspace --all-features
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: native-install-${{ matrix.os }}
+          path: .tools/install-acceptance
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && runner.os == 'Windows'
         with:
           name: win32-native
           path: .tools/ui-windows
           if-no-files-found: error
-      - name: Check Windows installer syntax
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          foreach ($file in "install-windows.ps1", "uninstall-windows.ps1", "scripts/e2e-sample.ps1") {
-            $errors = $null
-            [void][System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$null, [ref]$errors)
-            if ($errors) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
-          }
-
-  e2e:
-    name: End to end (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, macos-26, macos-26-intel, windows-2025]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          persist-credentials: false
-      # Windows exercises the socket through .NET instead — CPython does not
-      # build AF_UNIX there. Elsewhere a pinned interpreter keeps the venv
-      # deterministic.
-      - if: runner.os != 'Windows'
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.13'
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          version: '0.12.17'
-          # Only one pinned pytest wheel is fetched; a cache would cost more than it saves.
-          enable-cache: 'false'
-      - run: cargo build --release --locked --package nddev-systeminfo
-      - name: Serve and read the protocol (Linux)
-        if: runner.os == 'Linux'
-        timeout-minutes: 3
-        run: |
-          ./target/release/nddev-systeminfod &
-          daemon_pid=$!
-          sleep 1
-          PYTHONPATH=python/src uv run --no-project python scripts/e2e-sample.py
-          PYTHONPATH=python/src uv run --no-project python scripts/runtime-check.py --socket "${XDG_RUNTIME_DIR}/rldyour-sysinfo.sock"
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y gjs
-          gjs -m extension/tests/protocol.js
-          (cd extension && gjs -m tests/smoke.js)
-          test_runtime="$(mktemp -d)"
-          XDG_RUNTIME_DIR="${test_runtime}" gjs -m extension/tests/client.js
-          rmdir "${test_runtime}"
-          kill "${daemon_pid}"
-      - name: Serve and read the protocol (macOS)
-        if: runner.os == 'macOS'
-        timeout-minutes: 3
-        run: |
-          ./target/release/nddev-systeminfod &
-          daemon_pid=$!
-          sleep 1
-          PYTHONPATH=python/src uv run --no-project python scripts/e2e-sample.py
-          PYTHONPATH=python/src uv run --no-project python scripts/runtime-check.py --socket "${HOME}/Library/Application Support/rldyour-sysinfo/rldyour-sysinfo.sock"
-          swiftc -swift-version 6 -parse-as-library -warnings-as-errors macos/Sample.swift macos/SocketClient.swift macos/tests/SocketTests.swift -o /tmp/sysinfo-socket-tests
-          /tmp/sysinfo-socket-tests "${HOME}/Library/Application Support/rldyour-sysinfo/rldyour-sysinfo.sock"
-          kill "${daemon_pid}"
-      - name: Serve and read the protocol (Windows)
-        if: runner.os == 'Windows'
-        timeout-minutes: 3
-        shell: pwsh
-        run: |
-          $daemon = Start-Process -PassThru -WindowStyle Hidden target/release/nddev-systeminfod.exe
-          try {
-            Start-Sleep -Seconds 1
-            ./scripts/e2e-sample.ps1
-          } finally {
-            Stop-Process -Id $daemon.Id -Force -ErrorAction SilentlyContinue
-          }
-
-      - name: Explain a macOS daemon crash
-        if: failure() && runner.os == 'macOS'
-        run: |
-          python3 - <<'PY_CRASH'
-          import json, pathlib
-          for path in (pathlib.Path.home() / 'Library/Logs/DiagnosticReports').glob('nddev-systeminfod*.ips'):
-              lines = path.read_text().split('\n', 1)
-              try:
-                  report = json.loads(lines[1])
-              except (ValueError, IndexError):
-                  continue
-              print(json.dumps({key: report.get(key) for key in ('exception', 'termination', 'asi', 'faultingThread')}))
-              for thread in report.get('threads', []):
-                  if thread.get('triggered'):
-                      print(json.dumps(thread.get('frames', [])[:20]))
-          PY_CRASH
+          name: native-${{ matrix.os }}
+          path: dist/nddev-systeminfo-*
+          if-no-files-found: error
 
   platform-clients:
     name: Platform clients (${{ matrix.os }})
@@ -196,19 +106,6 @@ jobs:
           path: ${{ runner.temp }}/systeminfo-ui
           if-no-files-found: error
 
-  extension:
-    name: GNOME extension
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y libglib2.0-bin
-      - run: cargo run --locked --package systeminfo-tools -- check
-
   python-client:
     name: Python client (${{ matrix.os }})
     strategy:
@@ -234,24 +131,48 @@ jobs:
         run: PYTHONPATH=python/src uv run --no-project --with pytest==9.1.1 pytest python/tests
       - if: runner.os == 'Linux'
         run: uv build python
+      - if: runner.os != 'Windows'
+        run: cargo run --locked --package systeminfo-tools -- python-live
 
   debian-package:
     name: Debian package
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y dpkg-dev
-      - run: |
-          cargo build --release --locked --package nddev-systeminfo
-          ./scripts/build-deb.sh target/release/nddev-systeminfod /tmp/sysinfo-deb
-          dpkg-deb -x /tmp/sysinfo-deb/*.deb /tmp/sysinfo-unpack
-          test "$(stat -c '%a' /tmp/sysinfo-unpack)" = 755
-          grep -qx 'ExecStart=/usr/bin/rldyour-sysinfod' /tmp/sysinfo-unpack/usr/lib/systemd/user/rldyour-sysinfod.service
-          dpkg-deb -f /tmp/sysinfo-deb/*.deb Depends | grep -q 'libc6'
-          /tmp/sysinfo-unpack/usr/bin/rldyour-sysinfod --version
-          sudo dpkg -i /tmp/sysinfo-deb/*.deb
-          systemctl --global is-enabled rldyour-sysinfod.socket
+      - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y dpkg-dev libglib2.0-bin init-system-helpers
+      - run: cargo run --locked --package systeminfo-tools -- deb-test
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: debian-amd64
+          path: dist/*.deb
+          if-no-files-found: error
 
+  gnome:
+    name: Native GNOME UI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y gnome-shell gnome-shell-extension-prefs gjs dbus-x11 libglib2.0-bin gir1.2-atspi-2.0 at-spi2-core librsvg2-common libgl1-mesa-dri libegl-mesa0 adwaita-icon-theme fonts-noto-core fonts-noto-cjk
+      - name: Native protocol and async client checks
+        run: |
+          gjs -m extension/tests/protocol.js
+          test_runtime="$(mktemp -d)"
+          XDG_RUNTIME_DIR="$test_runtime" gjs -m extension/tests/client.js
+          rmdir "$test_runtime"
+      - name: Actual Shell and GTK acceptance
+        run: |
+          test_uid="$(id -u)"
+          sudo systemctl start "user@$test_uid.service"
+          XDG_RUNTIME_DIR="/run/user/$test_uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$test_uid/bus" cargo run --locked --package systeminfo-tools -- ui-linux
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: gnome-native
+          path: .tools/ui-linux
+          if-no-files-found: error

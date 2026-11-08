@@ -329,6 +329,7 @@ impl Tray {
                 GetCursorPos(&mut point);
             }
             SetForegroundWindow(self.window);
+            SetFocus(self.window);
             let command = TrackPopupMenuEx(
                 menu.0,
                 0x100 | 2 | if model.rtl { 0x8000 } else { 0 },
@@ -735,6 +736,85 @@ fn tooltip(value: &str) -> [u16; 128] {
         used += text.len();
     }
     result
+}
+
+fn processes() -> sysinfo::System {
+    let mut system = sysinfo::System::new();
+    system.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::All,
+        true,
+        sysinfo::ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::OnlyIfNotSet),
+    );
+    system
+}
+fn matches_path(path: &Path, expected: &Path) -> bool {
+    std::fs::canonicalize(path)
+        .ok()
+        .zip(std::fs::canonicalize(expected).ok())
+        .is_some_and(|(a, b)| a == b)
+}
+pub fn running_products(paths: &[std::path::PathBuf]) -> Vec<std::path::PathBuf> {
+    let system = processes();
+    paths
+        .iter()
+        .filter(|path| {
+            system
+                .processes()
+                .values()
+                .any(|process| process.exe().is_some_and(|exe| matches_path(exe, path)))
+        })
+        .cloned()
+        .collect()
+}
+pub fn stop_products(paths: &[std::path::PathBuf]) -> io::Result<bool> {
+    let mut system = processes();
+    let targets: Vec<_> = system
+        .processes()
+        .iter()
+        .filter_map(|(pid, process)| {
+            process
+                .exe()
+                .filter(|exe| paths.iter().any(|path| matches_path(exe, path)))
+                .map(|_| (*pid, process.start_time()))
+        })
+        .collect();
+    for (pid, _) in &targets {
+        // SAFETY: FindWindow returns a borrowed HWND. Its PID must match an
+        // executable verified above before requesting a graceful tray shutdown.
+        let graceful = unsafe {
+            let window = FindWindowW(wide("org.nddev.systeminfo.tray").as_ptr(), null());
+            let mut owner = 0;
+            if !window.is_null() {
+                GetWindowThreadProcessId(window, &mut owner);
+            }
+            owner == pid.as_u32() && PostMessageW(window, CLOSE, 0, 0) != 0
+        };
+        if !graceful && !system.process(*pid).is_some_and(|process| process.kill()) {
+            return Err(io::Error::other("could not stop the owned provider"));
+        }
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    loop {
+        system.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::All,
+            true,
+            sysinfo::ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::OnlyIfNotSet),
+        );
+        if targets.iter().all(|(pid, start)| {
+            system
+                .process(*pid)
+                .is_none_or(|process| process.start_time() != *start || !process.exists())
+        }) {
+            return Ok(!targets.is_empty());
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "owned process did not stop",
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
 }
 
 /// One sleeping native wait owns a change handle and a cancel event. It does not

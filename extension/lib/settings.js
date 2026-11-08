@@ -82,6 +82,11 @@ export class Settings {
     async set(key, value) {
         await this._run(['config', 'set', key, String(value)]);
         await this.reload();
+        if (key === 'sampling.gpu') {
+            try { return JSON.parse(await this._run(['service', 'apply'])).applied ? 'saved' : 'restart_provider'; }
+            catch { return 'restart_provider'; }
+        }
+        return 'saved';
     }
     _run(arguments_) {
         const executable = GLib.find_program_in_path('nddev-systeminfo') ?? GLib.build_filenamev([GLib.get_home_dir(), '.local', 'bin', 'nddev-systeminfo']);

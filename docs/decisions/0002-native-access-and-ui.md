@@ -16,6 +16,29 @@ where the OS permits them, repeated creation/drop and shutdown. No unsafe access
 is introduced into NDS's adapter. Device access remains read-only and needs no
 administrator privileges.
 
+Windows presentation lifecycle includes starting and stopping the owned tray and
+provider. Background launch uses a Win32 handle allowlist containing only null
+stdin and the local JSON log. It never inherits a caller's pipes or unrelated
+handles. Rust's corresponding attribute-list interface is still unstable in
+the pinned stable toolchain. The native crate owns the temporary attribute list,
+inheritable duplicates and process/thread handles; the rest of the product uses
+one safe function. Native installation acceptance captures CLI output and must
+finish while the background products remain alive.
+
+Windows Installer owns a small per-user maintenance package generated in Rust.
+It caches a cleanup executable in its Binary table and owns that executable's
+temporary extraction and removal. The installed CLI hands removal to msiexec
+and exits; the cleanup action waits on its initiating process with SYNCHRONIZE
+access before removing owned versions. No elevation, shell script, resident
+helper or reboot is required. Settings survive. Real self-uninstall acceptance
+qualifies both the asynchronous handoff and removal. POSIX file disposition was
+rejected after real Windows qualification denied deletion of a mapped image.
+
+References: [Rust CommandExt](https://doc.rust-lang.org/std/os/windows/process/trait.CommandExt.html),
+[Windows handle inheritance](https://learn.microsoft.com/en-us/windows/win32/procthread/inheritance).
+See [Windows Installer executable actions](https://learn.microsoft.com/en-us/windows/win32/msi/custom-action-type-2)
+and [installation context](https://learn.microsoft.com/en-us/windows/win32/msi/installation-context).
+
 ## Presentation options
 
 The default desktop stack is Tauri with React/TypeScript. It supplies one shared

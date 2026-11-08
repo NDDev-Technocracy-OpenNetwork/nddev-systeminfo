@@ -129,7 +129,6 @@ unsafe extern "system" {
         class: *const u16,
         title: *const u16,
     ) -> Handle;
-    pub(super) fn GetWindowThreadProcessId(window: Handle, pid: *mut u32) -> u32;
     pub(super) fn IsWindowVisible(window: Handle) -> i32;
     pub(super) fn GetMenuBarInfo(
         window: Handle,
@@ -191,6 +190,8 @@ unsafe extern "system" {
 #[link(name = "user32")]
 unsafe extern "system" {
     pub(super) fn RegisterClassW(class: *const WindowClass) -> u16;
+    pub(super) fn FindWindowW(class: *const u16, title: *const u16) -> Handle;
+    pub(super) fn GetWindowThreadProcessId(window: Handle, pid: *mut u32) -> u32;
     pub(super) fn UnregisterClassW(name: *const u16, instance: Handle) -> i32;
     pub(super) fn CreateWindowExW(
         style: u32,
@@ -232,6 +233,7 @@ unsafe extern "system" {
     ) -> u32;
     pub(super) fn GetCursorPos(point: *mut Point) -> i32;
     pub(super) fn SetForegroundWindow(window: Handle) -> i32;
+    pub(super) fn SetFocus(window: Handle) -> Handle;
     pub(super) fn EndMenu() -> i32;
     pub(super) fn CreateIconIndirect(info: *const IconInfo) -> Handle;
     pub(super) fn DestroyIcon(icon: Handle) -> i32;

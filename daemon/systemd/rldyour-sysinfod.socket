@@ -1,5 +1,5 @@
 [Unit]
-Description=rldyour-sysinfo metrics socket
+Description=NDDev Systeminfo metrics socket
 
 [Socket]
 # %t is the per-user runtime directory, which is tmpfs and cleaned on logout.

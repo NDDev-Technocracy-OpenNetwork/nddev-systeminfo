@@ -20,6 +20,10 @@ path = "src/bin/nddev-systeminfo.rs"
 name = "nddev-systeminfo-tray"
 path = "src/bin/nddev-systeminfo-tray.rs"
 
+[[bin]]
+name = "nddev-systeminfo-package"
+path = "src/bin/nddev-systeminfo-package.rs"
+
 [dependencies]
 nddev-systeminfo-contract.workspace = true
 nddev-systeminfo-native.workspace = true
@@ -31,6 +35,7 @@ socket2.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 nddev-opennetwork-design-tokens.workspace = true
+sha2.workspace = true
 
 [features]
 default = ["nvidia"]

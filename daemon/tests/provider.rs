@@ -23,6 +23,9 @@ struct Provider {
 }
 impl Provider {
     fn start() -> Self {
+        Self::with_clients(2)
+    }
+    fn with_clients(clients: usize) -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let directory = std::env::temp_dir().join(format!(
             "si-{}-{}",
@@ -43,7 +46,7 @@ impl Provider {
         let mut config = Config::parse(DEFAULT_TOML).unwrap();
         config.sampling.interval_seconds = 0;
         config.sampling.idle_release_seconds = 1;
-        config.transport.max_clients = 2;
+        config.transport.max_clients = clients;
         config.transport.handshake_timeout_ms = 50;
         config.logging.level = "debug".into();
         config.store(&configuration).unwrap();
@@ -75,24 +78,15 @@ impl Provider {
                 }
             }
         });
-        let mut provider = Self {
+        let provider = Self {
             child,
             directory,
             socket,
             logs,
         };
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while !provider.socket.exists() {
-            assert!(
-                provider.child.try_wait().unwrap().is_none(),
-                "native daemon exited before readiness"
-            );
-            assert!(
-                Instant::now() < deadline,
-                "native socket readiness deadline exceeded"
-            );
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        // A Unix socket pathname can exist between bind and listen. The public
+        // started event is emitted only after the listener is actually ready.
+        provider.event("systeminfo.started");
         provider
     }
     fn client(&self) -> Client {
@@ -125,7 +119,6 @@ impl Drop for Provider {
 #[test]
 fn native_provider_is_standalone_lazy_and_releases_its_collector() {
     let mut provider = Provider::start();
-    provider.event("systeminfo.started");
     assert!(
         provider.logs.try_recv().is_err(),
         "collector ran without clients"
@@ -160,6 +153,62 @@ fn native_provider_admits_only_the_configured_number_of_clients() {
     assert!(excess.next_sample().is_err());
     first.next_sample().unwrap();
     second.next_sample().unwrap();
+}
+
+#[test]
+fn native_realtime_cadence_survives_connection_churn_and_invalid_handshakes() {
+    use nddev_systeminfo_native::transport::UnixStream;
+    use std::io::{Read, Write};
+    let provider = Provider::with_clients(32);
+    let mut healthy = provider.client();
+    healthy.next_sample().unwrap();
+    assert!(healthy.next_sample().unwrap().cpu.usage.is_some());
+    let mut peers = Vec::new();
+    for _ in 0..20 {
+        let mut peer = provider.client();
+        peer.next_sample().unwrap();
+        peers.push(peer);
+    }
+    let mut durations = Vec::new();
+    for _ in 0..5 {
+        let start = Instant::now();
+        healthy.next_sample().unwrap();
+        durations.push(start.elapsed());
+    }
+    durations.sort_unstable();
+    assert!(
+        (Duration::from_millis(400)..Duration::from_millis(1500)).contains(&durations[2]),
+        "cadence changed after churn: {durations:?}"
+    );
+    drop(peers);
+    let mut oversized = UnixStream::connect(&provider.socket).unwrap();
+    oversized
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    oversized.write_all(&[b'x'; 256]).unwrap();
+    let mut byte = [0];
+    match oversized.read(&mut byte) {
+        Ok(0) => {}
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+            ) => {}
+        result => panic!("oversized handshake was not disconnected: {result:?}"),
+    }
+    let silent = UnixStream::connect(&provider.socket).unwrap();
+    silent
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let mut frame = Vec::new();
+    let start = Instant::now();
+    BufReader::new(silent)
+        .take(4097)
+        .read_until(b'\n', &mut frame)
+        .unwrap();
+    nddev_systeminfo::protocol::decode(&frame).unwrap();
+    assert!(start.elapsed() < Duration::from_millis(1500));
+    healthy.next_sample().unwrap();
 }
 
 #[test]

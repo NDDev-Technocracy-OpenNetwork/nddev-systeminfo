@@ -25,6 +25,7 @@ struct State {
     sample: Option<WireSnapshot>,
     generation: u64,
     stopped: bool,
+    apply_service: bool,
     cancel: Option<Cancellation>,
     icon: Vec<u8>,
     side: u32,
@@ -41,6 +42,7 @@ pub fn native_model(config: &Config, sample: Option<&WireSnapshot>) -> Model {
         sample: sample.cloned(),
         generation: 0,
         stopped: false,
+        apply_service: false,
         cancel: None,
         icon: Vec::new(),
         side: 32,
@@ -61,6 +63,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         sample: None,
         generation: 0,
         stopped: false,
+        apply_service: false,
         cancel: None,
         icon: Vec::new(),
         side: 32,
@@ -99,15 +102,15 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             Event::Command(RECONNECT) => restart(&mut state, &shared.1),
             Event::Command(id) => {
                 if let Some((key, value)) = settings(&state).into_iter().find_map(|(item, key, value)| (item == id).then_some((key, value))) {
-                    let mut candidate = state.config.clone();
-                    let result = candidate.set(&key, &value).and_then(|()| candidate.store(&config::default_path()?));
+                    let result = config::default_path().map_err(config::ConfigError::from)
+                        .and_then(|path| Config::set_file(&path, &key, &value));
                     match result {
-                        Ok(()) => {
+                        Ok(candidate) => {
                             state.config = candidate;
                             state.catalog = Catalog::load(&state.config.display.locale, &[&tray::system_language()]);
                             state.refresh_icon();
                             restart(&mut state, &shared.1);
-                            if key.starts_with("sampling.") { state.notice = Some("restart_provider"); }
+                            if key == "sampling.gpu" { state.apply_service = true; }
                         }
                         Err(error) => { state.notice = Some("error"); tracing::error!(event.name="systeminfo.config.save_failed", error.type="config", message=%error); }
                     }
@@ -161,13 +164,32 @@ fn restart(state: &mut State, wake: &Condvar) {
 }
 fn collect(shared: Shared, proxy: Proxy) {
     loop {
-        let (config, generation) = {
-            let state = shared.0.lock().unwrap();
+        let (config, generation, apply_service) = {
+            let mut state = shared.0.lock().unwrap();
             if state.stopped {
                 return;
             }
-            (state.config.clone(), state.generation)
+            let apply = std::mem::take(&mut state.apply_service);
+            (state.config.clone(), state.generation, apply)
         };
+        if apply_service {
+            // A service operation may wait on the OS. Keep it off the message
+            // thread and outside the model lock; shutdown joins this same worker.
+            let result = crate::installation::command(&["service".into(), "apply".into()]);
+            let applied = result
+                .ok()
+                .flatten()
+                .is_some_and(|value| value["applied"] == true);
+            let mut state = shared.0.lock().unwrap();
+            if state.stopped {
+                return;
+            }
+            if state.generation != generation {
+                continue;
+            }
+            state.notice = Some(if applied { "saved" } else { "restart_provider" });
+            proxy.update(state.model());
+        }
         let connect = transport::socket_path()
             .map_err(crate::client::ClientError::from)
             .and_then(|path| {
@@ -186,7 +208,7 @@ fn collect(shared: Shared, proxy: Proxy) {
                 if state.generation != generation {
                     continue;
                 }
-                state.cancel = client.cancellation().ok();
+                state.cancel = Some(client.cancellation());
             }
             loop {
                 let frame = client.next_sample();
@@ -254,9 +276,6 @@ fn settings(state: &State) -> Vec<(u32, String, String)> {
     for value in ["system", "light", "dark", "light-contrast", "dark-contrast"] {
         add("display.theme", value.into());
     }
-    for value in ["compact", "comfortable"] {
-        add("display.density", value.into());
-    }
     for value in ["system", "en", "ru", "kk", "ar", "zh"] {
         add("display.locale", value.into());
     }
@@ -280,15 +299,42 @@ impl State {
         };
         let mask = include_bytes!("../../assets/brand-mask-64.bin");
         let side = self.side;
+        let background = [
+            colors.surface_base.b,
+            colors.surface_base.g,
+            colors.surface_base.r,
+        ];
+        let foreground = [color[2], color[1], color[0]];
+        let padding = side / 8;
+        let drawing = side - 2 * padding;
         self.icon = (0..side)
             .flat_map(|y| {
                 (0..side).flat_map(move |x| {
-                    let alpha = mask[((y * 64 / side) * 64 + x * 64 / side) as usize];
+                    let alpha = if (padding..side - padding).contains(&x)
+                        && (padding..side - padding).contains(&y)
+                    {
+                        mask[(((y - padding) * 64 / drawing) * 64 + (x - padding) * 64 / drawing)
+                            as usize]
+                    } else {
+                        0
+                    };
+                    let blend = |channel: usize| {
+                        let ink = u16::from(foreground[channel]) * u16::from(alpha);
+                        let surface = if contrast {
+                            0
+                        } else {
+                            u16::from(background[channel]) * u16::from(255 - alpha)
+                        };
+                        ((ink + surface) / 255) as u8
+                    };
+                    // An opaque released surface keeps a selected app theme
+                    // legible on either taskbar color. OS high contrast uses a
+                    // symbolic icon in the system's own foreground instead.
                     [
-                        ((u16::from(color[2]) * u16::from(alpha)) / 255) as u8,
-                        ((u16::from(color[1]) * u16::from(alpha)) / 255) as u8,
-                        ((u16::from(color[0]) * u16::from(alpha)) / 255) as u8,
-                        alpha,
+                        blend(0),
+                        blend(1),
+                        blend(2),
+                        if contrast { alpha } else { 255 },
                     ]
                 })
             })
@@ -329,12 +375,11 @@ impl State {
                 checked: false,
             });
         }
-        let mut groups: Vec<(&str, Vec<Entry>)> = [
-            "interval", "readings", "panel", "theme", "density", "language",
-        ]
-        .into_iter()
-        .map(|key| (key, Vec::new()))
-        .collect();
+        let mut groups: Vec<(&str, Vec<Entry>)> =
+            ["interval", "readings", "panel", "theme", "language"]
+                .into_iter()
+                .map(|key| (key, Vec::new()))
+                .collect();
         for (id, key, value) in settings(self) {
             let (group, title, checked) = match key.as_str() {
                 "sampling.interval_seconds" => {
@@ -362,13 +407,8 @@ impl State {
                     catalog.text(&value).into(),
                     self.config.display.theme == value,
                 ),
-                "display.density" => (
-                    4,
-                    catalog.text(&value).into(),
-                    self.config.display.density == value,
-                ),
                 "display.locale" => (
-                    5,
+                    4,
                     if value == "system" {
                         catalog.text("system").into()
                     } else {

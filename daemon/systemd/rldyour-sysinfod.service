@@ -1,12 +1,11 @@
 [Unit]
-Description=rldyour-sysinfo metrics daemon
+Description=NDDev Systeminfo metrics provider
 Requires=rldyour-sysinfod.socket
 After=rldyour-sysinfod.socket
 
 [Service]
 Type=exec
-ExecStart=%h/.local/bin/rldyour-sysinfod
-Environment=RLDYOUR_SYSINFO_INTERVAL=5
+ExecStart=%h/.local/bin/nddev-systeminfod
 # One arena is enough for two threads that barely allocate, and it keeps glibc
 # from reserving per-thread heaps the daemon would never fill.
 Environment=MALLOC_ARENA_MAX=1
