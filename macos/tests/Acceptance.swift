@@ -42,7 +42,8 @@ func runNativeAcceptance(_ app: AppDelegate) async throws {
         precondition(app.acceptanceMenu.userInterfaceLayoutDirection == (code == "ar" ? .rightToLeft : .leftToRight))
         try captureMenu(app.acceptanceMenu, folder.appendingPathComponent("\(code)-\(theme).png"))
         app.acceptanceOpenAnalysis()
-        try await until { app.acceptanceAnalysis?.acceptanceView?.metric == "cpu.usage" }
+        try await until { app.acceptanceAnalysis?.acceptanceLive == true && app.acceptanceAnalysis?.acceptanceView?.metric == "cpu.usage"
+            && app.acceptanceAnalysis?.acceptanceView?.statistics.current != nil }
         guard let analysis = app.acceptanceAnalysis, let window = analysis.window else { throw TestFailure.missingSetting }
         window.displayIfNeeded()
         try captureWindow(window, folder.appendingPathComponent("analysis-\(code)-\(theme).png"))

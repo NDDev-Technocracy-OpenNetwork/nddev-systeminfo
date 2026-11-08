@@ -58,7 +58,9 @@ pub fn open(config: Option<&Path>, metric: Option<&str>) -> io::Result<()> {
     let mut command = {
         let _ = (config, metric);
         let path = std::env::current_exe()?.with_file_name("nddev-systeminfo-tray.exe");
-        Command::new(path)
+        let mut command = Command::new(path);
+        command.arg("--show");
+        command
     };
     let status = command.status()?;
     if status.success() {

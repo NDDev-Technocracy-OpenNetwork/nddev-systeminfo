@@ -839,6 +839,11 @@ fn run() -> Result {
             }
         }
         Some("measure") => resources::measure(),
+        Some("measure-baseline") => resources::baseline(Path::new(
+            &std::env::args()
+                .nth(2)
+                .ok_or("baseline measurement needs the original binary path")?,
+        )),
         Some("measure-legacy") => resources::legacy(Path::new(
             &std::env::args()
                 .nth(2)

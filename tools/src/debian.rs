@@ -92,6 +92,11 @@ pub(super) fn package() -> Result {
         &root.join("usr/share/applications/nddev-systeminfo.desktop"),
         false,
     )?;
+    copy(
+        &extension.join("resources/brand-symbolic.svg"),
+        &root.join("usr/share/icons/hicolor/scalable/apps/nddev-systeminfo-symbolic.svg"),
+        false,
+    )?;
     for file in [
         "LICENSE",
         "NOTICE",

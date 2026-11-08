@@ -80,6 +80,9 @@ impl MetricsSource for MacosCollector {
                 .or_else(|| self.temperatures.gpu_hid());
         }
         snapshot.disk_temperature = self.temperatures.disk();
+        if let Some(gpu) = &mut self.gpu {
+            gpu.apple_temperature(snapshot.gpu_temperature);
+        }
         snapshot
     }
 }

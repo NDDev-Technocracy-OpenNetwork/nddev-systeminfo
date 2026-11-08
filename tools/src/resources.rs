@@ -5,7 +5,7 @@ use crate::Result;
 pub(super) fn measure() -> Result {
     #[cfg(target_os = "linux")]
     {
-        linux::measure(None)
+        linux::measure(None, false)
     }
     #[cfg(not(target_os = "linux"))]
     Err("Linux resource acceptance needs procfs; use native OS process tools elsewhere".into())
@@ -13,12 +13,24 @@ pub(super) fn measure() -> Result {
 pub(super) fn legacy(path: &std::path::Path) -> Result {
     #[cfg(target_os = "linux")]
     {
-        linux::measure(Some(path))
+        linux::measure(Some(path), true)
     }
     #[cfg(not(target_os = "linux"))]
     {
         let _ = path;
         Err("legacy resource qualification requires Linux".into())
+    }
+}
+
+pub(super) fn baseline(path: &std::path::Path) -> Result {
+    #[cfg(target_os = "linux")]
+    {
+        linux::measure(Some(path), false)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = path;
+        Err("baseline qualification requires Linux".into())
     }
 }
 
@@ -78,14 +90,14 @@ mod linux {
             "cpu_ticks": fields[11].parse::<u64>()? + fields[12].parse::<u64>()?
         }))
     }
-    pub(super) fn measure(legacy: Option<&Path>) -> Result {
+    pub(super) fn measure(legacy: Option<&Path>, historical: bool) -> Result {
         let provider = if let Some(path) = legacy {
             fs::canonicalize(path)?
         } else {
             crate::build_binaries(true)?["nddev-systeminfod"].clone()
         };
         let output = Path::new(".tools/resources").join(if legacy.is_some() {
-            "legacy"
+            if historical { "legacy" } else { "baseline" }
         } else {
             "current"
         });
@@ -94,13 +106,24 @@ mod linux {
         let profiles = if legacy.is_some() {
             vec![(false, false), (true, false)]
         } else {
-            vec![(false, true), (false, false), (true, false)]
+            vec![
+                (
+                    nddev_systeminfo::config::Config::parse(
+                        nddev_systeminfo::config::DEFAULT_TOML,
+                    )?
+                    .sampling
+                    .gpu,
+                    true,
+                ),
+                (false, false),
+                (true, false),
+            ]
         };
         for (gpu, bundled) in profiles {
             let directory = std::env::temp_dir()
                 .join(format!("si-measure-{}-{gpu}-{bundled}", std::process::id()));
             fs::create_dir(&directory)?;
-            let path = directory.join(if legacy.is_some() {
+            let path = directory.join(if historical {
                 "rldyour-sysinfo.sock"
             } else {
                 "s"
@@ -121,7 +144,7 @@ mod linux {
                 output.join(format!("provider-gpu-{gpu}-bundled-{bundled}.jsonl")),
             )?;
             let mut command = Command::new(&isolated);
-            if legacy.is_some() {
+            if historical {
                 // Interface of the immutable historical release, used only by
                 // this comparison. The current product accepts typed TOML.
                 command
@@ -184,13 +207,13 @@ mod linux {
             line.clear();
             BufReader::new(stream).read_line(&mut line)?;
             let _: Value = serde_json::from_str(&line)?;
-            measurements.push(json!({"gpu":gpu,"configuration":if bundled {"bundled"} else if legacy.is_some() {"legacy-env"} else {"file"},"cold":cold,"first_frame_ms":first_frame_ms,"startup_to_socket_ms":startup_ms,
+            measurements.push(json!({"gpu":gpu,"configuration":if bundled {"bundled"} else if historical {"legacy-env"} else {"file"},"cold":cold,"first_frame_ms":first_frame_ms,"startup_to_socket_ms":startup_ms,
                 "active":active,"active_cpu_ticks_10s":active["cpu_ticks"].as_u64().unwrap()-active_start["cpu_ticks"].as_u64().unwrap(),
                 "after_release":released,"idle_cpu_ticks_10s":idle_end["cpu_ticks"].as_u64().unwrap()-released["cpu_ticks"].as_u64().unwrap(),
                 "reconnect_first_frame_ms":before.elapsed().as_secs_f64()*1000.0}));
             println!("GPU={gpu}: idle and reconnect measured");
         }
-        let result = json!({"version":if legacy.is_some() { "0.3.1".to_string() } else { crate::version()? },"binary_sha256":crate::digest(&provider)?,"separate_inode":true,"profile":"release","interval_seconds":0,"active_seconds":10,"measurements":measurements});
+        let result = json!({"version":if historical { "0.3.1".to_string() } else if legacy.is_some() { "baseline".to_string() } else { crate::version()? },"binary_sha256":crate::digest(&provider)?,"separate_inode":true,"profile":"release","interval_seconds":0,"active_seconds":10,"measurements":measurements});
         fs::write(
             output.join("result.json"),
             serde_json::to_string_pretty(&result)? + "\n",

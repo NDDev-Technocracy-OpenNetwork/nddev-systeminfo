@@ -79,11 +79,17 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
     state.refresh_icon();
     let Some(tray) = Tray::new("org.nddev.systeminfo.tray", state.model())? else {
+        if std::env::args().any(|arg| arg == "--show") {
+            Tray::activate_existing("org.nddev.systeminfo.tray");
+        }
         return Ok(());
     };
     state.side = ((tray.dpi() * 16 / 96).div_ceil(16) * 16).clamp(16, 128);
     state.refresh_icon();
     let proxy = tray.proxy();
+    if std::env::args().any(|arg| arg == "--show") {
+        proxy.open_dashboard();
+    }
     let mut analysis = crate::windows_analysis::AnalysisUI::new(proxy.clone());
     proxy.update(state.model());
     let shared = Arc::new((Mutex::new(state), Condvar::new()));

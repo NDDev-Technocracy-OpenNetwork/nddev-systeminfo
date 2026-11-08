@@ -7,6 +7,7 @@ pub(super) struct Gpu {
     statistics: Option<Registry<4>>,
     power: Option<Registry<1>>,
     devices: Vec<Device>,
+    apple_name: String,
 }
 impl Gpu {
     pub(super) fn new() -> Self {
@@ -23,10 +24,22 @@ impl Gpu {
             ),
             power: Registry::new(c"IOAccelerator", c"AGCInfo", [c"poweredOffByAGC"]),
             devices: Vec::new(),
+            apple_name: apple_name(),
         }
     }
     pub(super) fn devices(&self) -> &[Device] {
         &self.devices
+    }
+    pub(super) fn apple_temperature(&mut self, value: Option<f32>) {
+        if self.devices.len() == 1 {
+            let device = &mut self.devices[0];
+            if device.name.starts_with("Apple")
+                && device.status == "available"
+                && device.temperature.is_none()
+            {
+                device.temperature = value.map(f64::from);
+            }
+        }
     }
     pub(super) fn read(&mut self) -> Reading {
         self.devices.clear();
@@ -73,7 +86,11 @@ impl Gpu {
                     .flatten();
                 self.devices.push(Device {
                     id: format!("ioreg:{id}"),
-                    name: name.into(),
+                    name: if lower.contains("agx") {
+                        self.apple_name.clone()
+                    } else {
+                        name.into()
+                    },
                     status: if asleep {
                         "sleeping"
                     } else if usage.is_some() || memory_used.is_some() || temperature.is_some() {
@@ -96,6 +113,36 @@ impl Gpu {
             temperature: None,
         })
     }
+}
+
+fn apple_name() -> String {
+    let mut bytes = [0u8; 128];
+    let mut length = bytes.len();
+    // SAFETY: one bounded, writable sysctl output buffer. No input or kernel
+    // pointer is retained. Brand metadata is queried once per collector lifetime.
+    let status = unsafe {
+        libc::sysctlbyname(
+            c"machdep.cpu.brand_string".as_ptr(),
+            bytes.as_mut_ptr().cast(),
+            &mut length,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if status == 0 && length <= bytes.len() {
+        let end = bytes[..length]
+            .iter()
+            .position(|b| *b == 0)
+            .unwrap_or(length);
+        if let Ok(name) = std::str::from_utf8(&bytes[..end])
+            && name.starts_with("Apple ")
+            && name.len() <= 120
+            && name.bytes().all(|b| b.is_ascii() && !b.is_ascii_control())
+        {
+            return format!("{} GPU", name.trim());
+        }
+    }
+    "Apple GPU".into()
 }
 #[cfg(test)]
 mod tests {

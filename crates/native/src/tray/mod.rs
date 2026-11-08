@@ -147,6 +147,14 @@ pub struct Tray {
     _creator_thread: PhantomData<Rc<()>>,
 }
 impl Tray {
+    pub fn activate_existing(identity: &str) -> bool {
+        // SAFETY: integer activation only, no payload or borrowed state. The
+        // identity is the same singleton/class name used by this native product.
+        unsafe {
+            let window = FindWindowW(wide(identity).as_ptr(), null());
+            !window.is_null() && PostMessageW(window, COMMAND, dashboard::OPEN as usize, 0) != 0
+        }
+    }
     pub fn new(identity: &str, model: Model) -> io::Result<Option<Self>> {
         let name = wide(&format!("Local\\{identity}"));
         // SAFETY: NUL-terminated names live through each synchronous call. The

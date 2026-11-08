@@ -122,9 +122,11 @@ private final class MetricCell: NSButton {
     var caption = ""
     var reading = ""
     var selected = false
+    private let compact: Bool
     var choose: (() -> Void)?
-    init(caption: String, reading: String, resource: UIResource, config: AppConfig, language: String,
+    init(caption: String, reading: String, resource: UIResource, config: AppConfig, language: String, compact: Bool = false,
          choose: @escaping () -> Void) {
+        self.compact = compact
         self.caption = caption; self.reading = reading; self.choose = choose
         metrics = resource.metrics[config.display.density]!
         type = resource.typography[language]!
@@ -133,7 +135,7 @@ private final class MetricCell: NSButton {
         isBordered = false
         target = self; action = #selector(activate)
         translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: 2 * metrics.padding + type.label + type.card + metrics.small).isActive = true
+        heightAnchor.constraint(equalToConstant: compact ? metrics.control + 2 * metrics.small : 2 * metrics.padding + type.label + type.card + metrics.small).isActive = true
         update(reading)
     }
     required init?(coder: NSCoder) { nil }
@@ -158,6 +160,12 @@ private final class MetricCell: NSButton {
         paragraph.alignment = userInterfaceLayoutDirection == .rightToLeft ? .right : .left
         let padding = metrics.padding
         let width = bounds.width - 2 * padding
+        if compact {
+            ("\(caption): \(MetricFormat.isolate(reading))" as NSString).draw(in: bounds.insetBy(dx: metrics.gap, dy: metrics.small),
+                withAttributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: type.label, weight: selected ? .semibold : .regular),
+                    .foregroundColor: uiColor(colors.text), .paragraphStyle: paragraph])
+            return
+        }
         (caption as NSString).draw(in: NSRect(x: padding, y: bounds.height - padding - type.label - metrics.small,
             width: width, height: type.label + metrics.small), withAttributes: [.font: NSFont.systemFont(ofSize: type.label),
             .foregroundColor: uiColor(colors.secondary), .paragraphStyle: paragraph])
@@ -266,7 +274,7 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
     }
     required init?(coder: NSCoder) { nil }
     func open(metric: String? = nil) {
-        if let metric { selected = metric }
+        if let metric { selected = metric; sizeForDetails() }
         build()
         showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -356,6 +364,8 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
             ranges.target = self; ranges.action = #selector(changeRange(_:))
             ranges.setAccessibilityLabel(text("range")); controls.addArrangedSubview(ranges)
             full(controls, in: detail)
+            coreBox = stack(); full(coreBox, in: detail)
+            gpuBox = stack(); full(gpuBox, in: detail)
             scale = NSTextField(labelWithString: ""); full(scale, in: detail)
             chart = HistoryChart(); chart.translatesAutoresizingMaskIntoConstraints = false
             chart.setAccessibilityElement(true); chart.setAccessibilityRole(.image)
@@ -367,8 +377,6 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
             full(axis, in: detail)
             stats = NSTextField(wrappingLabelWithString: ""); full(stats, in: detail)
             coverage = NSTextField(wrappingLabelWithString: ""); full(coverage, in: detail)
-            coreBox = stack(); full(coreBox, in: detail)
-            gpuBox = stack(); full(gpuBox, in: detail)
             let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.drawsBackground = false
             detail.translatesAutoresizingMaskIntoConstraints = false
             let clip = scroll.contentView
@@ -464,7 +472,7 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
                 let row = stack(.horizontal)
                 for core in slice[offset..<min(offset + 4, slice.count)] {
                     let b = MetricCell(caption: text("logical_core").replacingOccurrences(of: "{id}", with: String(core.id)),
-                        reading: "", resource: resource, config: config, language: language) { [weak self] in self?.select("core:\(core.id)") }
+                        reading: "", resource: resource, config: config, language: language, compact: true) { [weak self] in self?.select("core:\(core.id)") }
                     row.addArrangedSubview(b); coreCells.append((core.id, b))
                 }
                 full(row, in: coreBox)
@@ -502,12 +510,17 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
     }
     private func select(_ key: String) {
         selected = key; paused = false
+        sizeForDetails()
+        build(); restart()
+    }
+    private func sizeForDetails() {
         let m = resource.metrics[config.display.density]!
         if let window {
-            let width = min(NSScreen.main?.visibleFrame.width ?? m.minWidth * 3, m.minWidth * 3)
-            window.setContentSize(NSSize(width: width, height: min(NSScreen.main?.visibleFrame.height ?? 720, m.minWidth * 2.25)))
+            let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1024, height: 768)
+            let chrome = window.frame.height - window.contentLayoutRect.height
+            window.setContentSize(NSSize(width: min(visible.width - 2 * m.padding, m.minWidth * 3),
+                height: min(visible.height - chrome - 2 * m.padding, m.minWidth * 2.25)))
         }
-        build(); restart()
     }
     @objc private func back() { selected = nil; build(); restart() }
     @objc private func changeSeries() { select(resource.series[series.indexOfSelectedItem].key) }
@@ -548,6 +561,7 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
     var acceptanceView: AnalysisView? { view }
     var acceptancePaused: Bool { paused }
     var acceptanceHasReader: Bool { reader != nil }
+    var acceptanceLive: Bool { live }
     func acceptanceSelect(_ metric: String) { select(metric) }
     func acceptancePause() { togglePause() }
     #endif

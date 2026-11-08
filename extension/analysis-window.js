@@ -53,16 +53,17 @@ class Dashboard {
     }
     t(key) { return this.settings.text(key); }
     box(horizontal = false) { return new Gtk.Box({orientation: horizontal ? Gtk.Orientation.HORIZONTAL : Gtk.Orientation.VERTICAL, spacing: this.metrics.gap}); }
-    label(text, wrap = false) { return new Gtk.Label({label: text, xalign: 0, wrap, selectable: true}); }
+    label(text, wrap = false) { return new Gtk.Label({label: text, xalign: 0, wrap}); }
     button(key, action) {
         const button = new Gtk.Button({label: this.t(key)});
         button.connect('clicked', action);
         return button;
     }
-    cell(caption, action) {
+    cell(caption, action, compact = false) {
         const button = new Gtk.Button({hexpand: true});
         button.add_css_class('metric-cell');
-        const content = this.box();
+        const content = this.box(compact);
+        if (compact) button.add_css_class('core-cell');
         const title = this.label(caption); title.add_css_class('secondary');
         const value = this.label('—'); value.add_css_class('metric-value'); value.set_direction(Gtk.TextDirection.LTR);
         content.append(title); content.append(value); button.set_child(content);
@@ -72,6 +73,7 @@ class Dashboard {
     }
     present(metric) {
         if (metric) this.metric = metric;
+        if (this.metric) this.window.set_default_size(this.metrics.min_width * 3, this.metrics.min_width * 2);
         this.build(); this.window.present(); this.restart();
     }
     build() {
@@ -121,6 +123,8 @@ class Dashboard {
             ranges.connect('notify::selected', () => { this.range = this.resource.analysis.ranges_seconds[ranges.selected]; this.restart(); });
             controls.append(ranges); this.content.append(controls);
             const detail = this.box();
+            this.cores = this.box(); detail.append(this.cores);
+            this.gpus = this.box(); detail.append(this.gpus);
             this.scale = this.label(''); detail.append(this.scale);
             this.chart = new Gtk.DrawingArea({content_width: m.min_width, content_height: m.min_width / 2, hexpand: true, vexpand: true});
             this.chart.set_draw_func((_, cr, width, height) => this.draw(cr, width, height));
@@ -130,8 +134,6 @@ class Dashboard {
             const now = new Gtk.Label({label: '0', xalign: 1, hexpand: true}); axis.append(now); detail.append(axis);
             this.statistics = this.label('', true); detail.append(this.statistics);
             this.coverage = this.label('', true); detail.append(this.coverage);
-            this.cores = this.box(); detail.append(this.cores);
-            this.gpus = this.box(); detail.append(this.gpus);
             const scroll = new Gtk.ScrolledWindow({hexpand: true, vexpand: true, hscrollbar_policy: Gtk.PolicyType.NEVER, child: detail});
             scroll.set_min_content_height(m.min_width); this.content.append(scroll);
         }
@@ -161,6 +163,8 @@ class Dashboard {
             .systeminfo button:hover { background: ${c.surface}; }
             .systeminfo button:focus-visible, .systeminfo .selected { outline: ${2 * m.border}px solid ${c.focus}; outline-offset: ${m.border}px; }
             .systeminfo .metric-cell { padding: ${m.row_padding}px; }
+            .systeminfo .core-cell { padding: ${m.small}px ${m.gap}px; }
+            .systeminfo .core-cell .metric-value { font-size: ${t.body}px; }
             .systeminfo .metric-value { font-size: ${t.card}px; font-weight: 600; font-feature-settings: 'tnum'; }
             .systeminfo .secondary { color: ${c.secondary}; font-size: ${t.label}px; }
             .systeminfo .heading { color: ${c.accent}; font-weight: 600; }`);
@@ -264,7 +268,7 @@ class Dashboard {
             this.cores.append(navigation);
             const grid = new Gtk.Grid({column_spacing: this.metrics.gap, row_spacing: this.metrics.gap, column_homogeneous: true});
             slice.forEach((core, i) => {
-                const cell = this.cell(this.t('logical_core').replace('{id}', String(core.id)), () => this.select(`core:${core.id}`));
+                const cell = this.cell(this.t('logical_core').replace('{id}', String(core.id)), () => this.select(`core:${core.id}`), true);
                 grid.attach(cell.button, i % 4, Math.floor(i / 4), 1, 1); this.coreCells.push({...cell, id: core.id});
             });
             this.cores.append(grid);

@@ -108,8 +108,13 @@ async function exercise() {
     await ready(extension._settings.text('paused'));
     const copy = extension._settings.text('copy_chart');
     assert((await inspect(copy, copy)).acted, 'analysis copy did not activate');
-    const copiedAnalysis = await new Promise(resolve => St.Clipboard.get_default().get_text(St.ClipboardType.CLIPBOARD, (_, value) => resolve(value)));
-    assert(JSON.parse(copiedAnalysis).metric === 'core:0', 'analysis did not use the selected real logical core');
+    const clipboardDeadline = GLib.get_monotonic_time() + 5_000_000;
+    while (true) {
+        const copiedAnalysis = await new Promise(resolve => St.Clipboard.get_default().get_text(St.ClipboardType.CLIPBOARD, (_, value) => resolve(value)));
+        try { if (JSON.parse(copiedAnalysis)?.metric === 'core:0') break; } catch { /* Wayland clipboard transfer is asynchronous. */ }
+        assert(GLib.get_monotonic_time() < clipboardDeadline, 'analysis copy did not export the selected real logical core');
+        await wait(25);
+    }
     await screenshot('analysis-core-paused'); captures.push('analysis-core-paused');
     const resume = extension._settings.text('resume');
     assert((await inspect(resume, resume)).acted, 'resume did not activate');

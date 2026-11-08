@@ -98,6 +98,20 @@ pub(super) fn install(source: &Path, manifest: &Manifest, provider_only: bool) -
         if backup.exists() {
             fs::remove_dir_all(backup)?;
         }
+        let data = extension
+            .ancestors()
+            .nth(3)
+            .ok_or(InstallError::Invalid("native data directory missing"))?;
+        atomic(
+            &data.join("applications/nddev-systeminfo.desktop"),
+            include_bytes!("../../../packaging/linux/nddev-systeminfo.desktop"),
+            false,
+        )?;
+        copy_file(
+            &source.join("ui/extension/resources/brand-symbolic.svg"),
+            &data.join("icons/hicolor/scalable/apps/nddev-systeminfo-symbolic.svg"),
+            false,
+        )?;
     }
     manager(&["daemon-reload"], true)?;
     if !existing && !service_masked {
@@ -166,8 +180,14 @@ pub(super) fn uninstall() -> Result {
         if extension.is_symlink() {
             return Err(InstallError::Invalid("extension destination is redirected"));
         }
-        fs::remove_dir_all(extension)?;
+        fs::remove_dir_all(&extension)?;
     }
+    let data = extension
+        .ancestors()
+        .nth(3)
+        .ok_or(InstallError::Invalid("native data directory missing"))?;
+    remove_file(&data.join("applications/nddev-systeminfo.desktop"))?;
+    remove_file(&data.join("icons/hicolor/scalable/apps/nddev-systeminfo-symbolic.svg"))?;
     remove_file(&state_dir()?.join("manifest.toml"))?;
     Ok(())
 }
