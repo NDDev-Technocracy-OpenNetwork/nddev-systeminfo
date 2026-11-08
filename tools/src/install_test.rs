@@ -153,7 +153,20 @@ pub(super) fn run() -> Result {
         }
         thread::sleep(Duration::from_millis(20));
     }
-    invoke(&cli, &["install", "--source", source.to_str().unwrap()])?;
+    let active_upgrades = if cfg!(target_os = "macos") { 4 } else { 1 };
+    for _ in 0..active_upgrades {
+        invoke(&installed, &["sample", "--once"])?;
+        #[cfg(target_os = "macos")]
+        macos_ui_running()?;
+        invoke(&cli, &["install", "--source", source.to_str().unwrap()])?;
+        let status: serde_json::Value =
+            serde_json::from_slice(&invoke(&installed, &["service", "status"])?.stdout)?;
+        if status["enabled"] != true || cfg!(target_os = "macos") && status["loaded"] != true {
+            return Err("active upgrade did not preserve native provider startup".into());
+        }
+        #[cfg(target_os = "macos")]
+        macos_ui_running()?;
+    }
     invoke(&installed, &["service", "apply"])?;
     invoke(&installed, &["sample", "--once"])?;
     // Uninstall through the installed executable, including Windows' executable
@@ -181,11 +194,33 @@ pub(super) fn run() -> Result {
         serde_json::to_string_pretty(&serde_json::json!({
             "os":std::env::consts::OS,"architecture":std::env::consts::ARCH,
             "install":true,"repeat":true,"disabled_preserved":true,"preferences_preserved":true,
-            "real_cli":true,"service_apply":true,"uninstalled_self":true
+            "real_cli":true,"service_apply":true,"active_upgrades":active_upgrades,"uninstalled_self":true
         }))?,
     )?;
     println!(
         "PASS: real native install, repeat, disabled state, preferences, CLI, service apply and self-uninstall"
     );
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_ui_running() -> Result {
+    let uid = Command::new("id").arg("-u").output()?;
+    let uid: u32 = String::from_utf8(uid.stdout)?.trim().parse()?;
+    let job = format!("gui/{uid}/com.nddev-opennetwork.rldyour-sysinfo");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let output = Command::new("launchctl").args(["print", &job]).output()?;
+        if output.status.success()
+            && String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .any(|line| line.trim() == "state = running")
+        {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err("native Mac UI did not run after active upgrade".into());
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
 }
