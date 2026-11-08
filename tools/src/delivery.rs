@@ -205,8 +205,13 @@ fn full_sha(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|c| c.is_ascii_hexdigit())
 }
 fn source_file(commit: &str, path: &str) -> Result<String> {
-    let output = Command::new("git").arg("show").arg(format!("{commit}:{path}")).output()?;
-    if !output.status.success() { return Err("qualified source data is unavailable".into()); }
+    let output = Command::new("git")
+        .arg("show")
+        .arg(format!("{commit}:{path}"))
+        .output()?;
+    if !output.status.success() {
+        return Err("qualified source data is unavailable".into());
+    }
     Ok(String::from_utf8(output.stdout)?)
 }
 fn tag_commit(github: &Github, tag: &Value) -> Result<String> {
@@ -311,7 +316,11 @@ pub(super) fn publish() -> Result {
     qualified(&run, &jobs, &configuration, &commit, &publisher_prefix()?)?;
     let revision = Command::new("git").args(["rev-parse", "HEAD"]).output()?;
     let publisher_commit = String::from_utf8(revision.stdout)?.trim().to_string();
-    let development = github.api("GET", &format!("git/ref/heads/{}", configuration.github.development_branch), None)?;
+    let development = github.api(
+        "GET",
+        &format!("git/ref/heads/{}", configuration.github.development_branch),
+        None,
+    )?;
     if development["object"]["sha"] != publisher_commit {
         return Err("publisher must run from the maintained dev branch".into());
     }
@@ -323,7 +332,10 @@ pub(super) fn publish() -> Result {
         return Err("publisher source has uncommitted changes".into());
     }
     let manifest: toml::Value = toml::from_str(&source_file(&commit, "Cargo.toml")?)?;
-    let version = manifest["workspace"]["package"]["version"].as_str().ok_or("qualified product version missing")?.to_string();
+    let version = manifest["workspace"]["package"]["version"]
+        .as_str()
+        .ok_or("qualified product version missing")?
+        .to_string();
     if version.split('.').count() != 3 || !version.bytes().all(|c| c.is_ascii_digit() || c == b'.')
     {
         return Err("stable release needs a numeric semantic version".into());
