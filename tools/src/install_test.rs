@@ -4,7 +4,7 @@ use crate::{Result, command};
 use std::{
     fs,
     path::PathBuf,
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
     thread,
     time::{Duration, Instant},
 };
@@ -34,10 +34,27 @@ pub(super) fn run() -> Result {
         ));
     }
     let invoke = |executable: &std::path::Path, arguments: &[&str]| -> Result<Output> {
-        let output = Command::new(executable)
+        eprintln!("native installation step: {arguments:?}");
+        let mut child = Command::new(executable)
             .envs(environment.iter().cloned())
             .args(arguments)
-            .output()?;
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            if let Some(status) = child.try_wait()? {
+                eprintln!("native installation process exited: {status}");
+                break;
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("native installation step timed out: {arguments:?}").into());
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let output = child.wait_with_output()?;
         if !output.status.success() {
             return Err(format!(
                 "native command failed: {arguments:?}, {}",
