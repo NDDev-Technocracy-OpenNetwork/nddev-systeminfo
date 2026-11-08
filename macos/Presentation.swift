@@ -104,12 +104,16 @@ enum MetricFormat {
         value.map { String(format: "%.0f°C", $0) } ?? absent
     }
     static func rate(_ value: UInt64?) -> String {
-        guard let value else { return absent }
-        var amount = Double(value)
-        let units = ["B/s", "KiB/s", "MiB/s", "GiB/s", "TiB/s", "PiB/s", "EiB/s"]
+        binary(value.map(Double.init), rate: true)
+    }
+    static func bytes(_ value: Double?) -> String { binary(value, rate: false) }
+    private static func binary(_ value: Double?, rate: Bool) -> String {
+        guard let value, value.isFinite, value >= 0 else { return absent }
+        var amount = value
+        let units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"]
         var unit = 0
         while amount >= 1024 && unit < units.count - 1 { amount /= 1024; unit += 1 }
-        return "\(String(format: "%.*f", unit > 0 && amount < 10 ? 1 : 0, amount)) \(units[unit])"
+        return "\(String(format: "%.*f", unit > 0 && amount < 10 ? 1 : 0, amount)) \(units[unit])\(rate ? "/s" : "")"
     }
     static func readings(_ sample: MetricSample?) -> [(String, String)] {
         [("cpu", percent(sample?.cpu.usage)), ("cpu_temperature", temperature(sample?.cpu.temp)),

@@ -447,7 +447,7 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
         switch unit {
         case "percent": return MetricFormat.percent(value)
         case "celsius": return MetricFormat.temperature(value)
-        case "bytes": return ByteCountFormatter.string(fromByteCount: Int64(min(value, Double(Int64.max) - 2048)), countStyle: .binary)
+        case "bytes": return MetricFormat.bytes(value)
         default: return MetricFormat.rate(UInt64(max(0, min(value, Double(UInt64.max) / 2))))
         }
     }
