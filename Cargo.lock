@@ -327,7 +327,7 @@ source = "git+https://github.com/NDDev-Technocracy-OpenNetwork/nddev-opennetwork
 
 [[package]]
 name = "nddev-systeminfo"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "nddev-opennetwork-design-tokens",
  "nddev-systeminfo-contract",
@@ -344,7 +344,7 @@ dependencies = [
 
 [[package]]
 name = "nddev-systeminfo-contract"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -353,7 +353,7 @@ dependencies = [
 
 [[package]]
 name = "nddev-systeminfo-native"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "core-foundation-sys",
  "libc",
@@ -619,7 +619,7 @@ dependencies = [
 
 [[package]]
 name = "systeminfo-tools"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "cfb",
  "msi",

@@ -7,7 +7,7 @@ inheritance. Hardware collection never initializes NDS or requests elevation.
 
 One lazy collector serves at most 32 clients and 32 queued admissions. A 256-byte
 handshake and an absolute 250 ms deadline bound admission. Frames are limited
-to 4096 bytes, sampling to a 500 ms floor, and slow readers disconnect rather
+to 4096 bytes for ordinary v1, sampling to a 500 ms floor, and slow readers disconnect rather
 than block publication. Every v1 metric is present and nullable; nonfinite or
 out-of-range readings are rejected at the boundary.
 
@@ -69,3 +69,25 @@ active ten-second samples and zero in the idle observation. These are one-host
 observations, with a visible non-GPU footprint cost, not universal latency,
 zero-CPU or leak-free guarantees. RSS, PSS and macOS physical footprint are
 different measurements and must not be compared as the same quantity.
+
+## Native analysis qualification
+
+Details are explicitly negotiated, with a 256 KiB detailed frame and a 1 MiB
+CLI view limit. One bounded RAM history owner serves recording clients; ordinary
+v1 SDK clients do not turn on history. Replay workers share immutable records
+and have an absolute deadline. Age/count/byte bounds, suspend expiry, sequence
+resets, truthful missing intervals, time-weighted statistics and peak-preserving
+plots are exercised alongside real-provider replay and v1 interoperability.
+
+Native tests operate actual metric cells and analysis controls. AppKit checks
+logical-core selection, pause/resume and window closure. GTK uses the real
+accessibility tree and Wayland clipboard to select a core, pause, copy the Rust
+model, resume and close the separate process. Win32 exercises standard native
+buttons, captures the core projection and confirms HWND destruction. These
+surfaces retain one bounded view; closing or pausing cancels their actual reader.
+
+The historical resource figures above describe the earlier default. Current
+new configurations enable passive GPU counters; existing explicit false settings
+remain false. A current resource report must identify its exact source/binary,
+GPU setting, recording demand and native window state. Driver/firmware support
+is a capability, not an assumption inferred from the OS name.

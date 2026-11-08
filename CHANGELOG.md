@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.5
+
+- Add passive per-adapter GPU details and logical-core CPU readings on Linux,
+  macOS and Windows. New configurations enable GPU collection; existing explicit
+  settings remain intact. Apple unified memory is reported as shared bytes.
+- Add negotiated, bounded, RAM-only one-hour history and shared Rust analysis
+  with peak-preserving plots, time-weighted statistics and explicit gaps.
+- Add native metric cells and analysis windows, core pages, ranges, pause/resume,
+  JSON export and the OpenNetwork website action, using released themes and all
+  five locales. Closing a window cancels its reader.
+- Preserve ordinary v1 SDK/NDS streams and keep history opt-in for integrations.
+  Add an installed native UI launcher and update qualified Python/CI tooling.
+
 ## 0.3.4 — 2026-11-08
 
 - Admit Debian package restarts independently for each active user manager,
