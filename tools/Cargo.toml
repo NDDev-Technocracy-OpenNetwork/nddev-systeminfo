@@ -11,6 +11,7 @@ publish = false
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
+nddev-opennetwork-design-tokens.workspace = true
 
 [lints]
 workspace = true

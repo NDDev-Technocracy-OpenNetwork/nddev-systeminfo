@@ -172,9 +172,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nddev-opennetwork-design-tokens"
+version = "0.0.1-alpha.9"
+source = "git+https://github.com/NDDev-Technocracy-OpenNetwork/nddev-opennetwork-design-system?rev=dbdf11b27fc6245b7942ad3e271f171602fce931#dbdf11b27fc6245b7942ad3e271f171602fce931"
+
+[[package]]
 name = "nddev-systeminfo"
 version = "0.3.2"
 dependencies = [
+ "nddev-opennetwork-design-tokens",
  "nddev-systeminfo-contract",
  "nddev-systeminfo-native",
  "serde",
@@ -430,6 +436,7 @@ dependencies = [
 name = "systeminfo-tools"
 version = "0.3.2"
 dependencies = [
+ "nddev-opennetwork-design-tokens",
  "serde",
  "serde_json",
  "toml",

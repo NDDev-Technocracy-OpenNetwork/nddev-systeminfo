@@ -101,6 +101,7 @@ jobs:
           PYTHONPATH=python/src uv run --no-project python scripts/runtime-check.py --socket "${XDG_RUNTIME_DIR}/rldyour-sysinfo.sock"
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y gjs
+          gjs -m extension/tests/protocol.js
           (cd extension && gjs -m tests/smoke.js)
           test_runtime="$(mktemp -d)"
           XDG_RUNTIME_DIR="${test_runtime}" gjs -m extension/tests/client.js
@@ -177,7 +178,7 @@ jobs:
       - run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y libglib2.0-bin
-      - run: ./scripts/check-extension.sh
+      - run: cargo run --locked --package systeminfo-tools -- check
 
   python-client:
     name: Python client (${{ matrix.os }})

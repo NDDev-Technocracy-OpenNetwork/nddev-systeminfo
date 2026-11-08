@@ -207,5 +207,9 @@
     "disk",
     "net"
   ],
-  "x-max-frame-bytes": 4096
+  "x-max-frame-bytes": 4096,
+  "x-cadence": {
+    "maximum-seconds": 60,
+    "realtime-ms": 500
+  }
 }

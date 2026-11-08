@@ -32,6 +32,7 @@ pub struct Transport {
     pub handshake_bytes: usize,
     pub handshake_timeout_ms: u64,
     pub client_timeout_ms: u64,
+    pub reconnect_seconds: u64,
     pub accept_stack_bytes: usize,
 }
 
@@ -39,6 +40,8 @@ pub struct Transport {
 #[serde(deny_unknown_fields)]
 pub struct Display {
     pub locale: String,
+    pub theme: String,
+    pub density: String,
     pub show_cpu: bool,
     pub show_memory: bool,
     pub show_gpu: bool,
@@ -50,6 +53,47 @@ pub struct Display {
 #[serde(deny_unknown_fields)]
 pub struct Logging {
     pub level: String,
+}
+
+/// Only explicit legacy preferences enter migration. Absence keeps the new
+/// typed defaults; an explicit false or realtime interval is preserved.
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LegacySettings {
+    pub interval: Option<u64>,
+    pub show_cpu: Option<bool>,
+    pub show_memory: Option<bool>,
+    pub show_gpu: Option<bool>,
+    pub show_network: Option<bool>,
+    pub show_temperatures: Option<bool>,
+    pub collect_gpu: Option<bool>,
+}
+impl LegacySettings {
+    pub fn apply(&self, config: &mut Config) -> Result<bool, ConfigError> {
+        let mut changed = false;
+        if let Some(interval) = self.interval {
+            config.sampling.interval_seconds = interval;
+            changed = true;
+        }
+        for (value, destination) in [
+            (self.show_cpu, &mut config.display.show_cpu),
+            (self.show_memory, &mut config.display.show_memory),
+            (self.show_gpu, &mut config.display.show_gpu),
+            (self.show_network, &mut config.display.show_network),
+            (
+                self.show_temperatures,
+                &mut config.display.show_temperatures,
+            ),
+            (self.collect_gpu, &mut config.sampling.gpu),
+        ] {
+            if let Some(value) = value {
+                *destination = value;
+                changed = true;
+            }
+        }
+        config.validate()?;
+        Ok(changed)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -90,6 +134,13 @@ impl Config {
     }
 
     pub fn store(&self, path: &Path) -> Result<(), ConfigError> {
+        self.write(path, false).map(|_| ())
+    }
+    /// Commit a complete file atomically without replacing another writer.
+    pub fn store_if_absent(&self, path: &Path) -> Result<bool, ConfigError> {
+        self.write(path, true)
+    }
+    fn write(&self, path: &Path, only_new: bool) -> Result<bool, ConfigError> {
         use std::io::Write;
         self.validate()?;
         if !path.is_absolute() {
@@ -114,7 +165,7 @@ impl Config {
                 .unwrap_or_default()
                 .as_nanos()
         ));
-        let result = (|| -> Result<(), ConfigError> {
+        let result = (|| -> Result<bool, ConfigError> {
             let mut options = std::fs::OpenOptions::new();
             options.write(true).create_new(true);
             #[cfg(unix)]
@@ -126,12 +177,25 @@ impl Config {
             file.write_all(toml::to_string_pretty(self)?.as_bytes())?;
             file.sync_all()?;
             drop(file);
-            std::fs::rename(&temporary, path)?;
-            Ok(())
+            if only_new {
+                match std::fs::hard_link(&temporary, path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => return Ok(false),
+                    Err(error) => return Err(error.into()),
+                }
+            } else {
+                std::fs::rename(&temporary, path)?;
+            }
+            #[cfg(unix)]
+            std::fs::File::open(parent)?.sync_all()?;
+            Ok(true)
         })();
-        if result.is_err() {
-            let _ = std::fs::remove_file(temporary);
-        }
+        // Rename consumed the temporary; link left our private temporary name.
+        match std::fs::remove_file(temporary) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        };
         result
     }
     pub fn parse(text: &str) -> Result<Self, ConfigError> {
@@ -155,7 +219,7 @@ impl Config {
         let transport = self.transport;
         for (valid, key) in [
             (
-                self.sampling.interval_seconds <= 60,
+                self.sampling.interval_seconds <= crate::protocol::MAX_INTERVAL,
                 "sampling.interval_seconds (0..60)",
             ),
             (
@@ -179,12 +243,25 @@ impl Config {
                 "transport.client_timeout_ms (1..60000)",
             ),
             (
+                (1..=60).contains(&transport.reconnect_seconds),
+                "transport.reconnect_seconds (1..60)",
+            ),
+            (
                 (65536..=1048576).contains(&transport.accept_stack_bytes),
                 "transport.accept_stack_bytes (65536..1048576)",
             ),
             (
                 ["system", "ru", "en", "kk", "ar", "zh"].contains(&self.display.locale.as_str()),
                 "display.locale",
+            ),
+            (
+                ["system", "light", "dark", "light-contrast", "dark-contrast"]
+                    .contains(&self.display.theme.as_str()),
+                "display.theme",
+            ),
+            (
+                ["comfortable", "compact"].contains(&self.display.density.as_str()),
+                "display.density",
             ),
             (
                 ["off", "error", "warn", "info", "debug", "trace"]
@@ -207,8 +284,8 @@ impl Config {
 /// Wire v1 cadence, a protocol bound shared by all clients.
 pub fn cadence(seconds: u64) -> Option<Duration> {
     match seconds {
-        0 => Some(Duration::from_millis(500)),
-        1..=60 => Some(Duration::from_secs(seconds)),
+        0 => Some(Duration::from_millis(crate::protocol::REALTIME_MS)),
+        1..=crate::protocol::MAX_INTERVAL => Some(Duration::from_secs(seconds)),
         _ => None,
     }
 }

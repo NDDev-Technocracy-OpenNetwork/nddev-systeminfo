@@ -1,5 +1,6 @@
 //! Reproducible source checks, tools and packaging. Run builds on a build host.
 use serde::Deserialize;
+mod linux_ui;
 use std::{
     collections::BTreeMap,
     error::Error,
@@ -84,7 +85,8 @@ fn setup() -> Result {
         let record = destination.with_extension("sha256");
         if destination.is_file()
             && record.is_file()
-            && digest(&destination)? == fs::read_to_string(&record)?.trim()
+            && format!("{} {}", artifact.sha256, digest(&destination)?)
+                == fs::read_to_string(&record)?.trim()
         {
             continue;
         }
@@ -127,7 +129,10 @@ fn setup() -> Result {
             })
             .ok_or("tool executable missing from verified archive")?;
         fs::copy(&executable, &destination)?;
-        fs::write(record, digest(&destination)?)?;
+        fs::write(
+            record,
+            format!("{} {}", artifact.sha256, digest(&destination)?),
+        )?;
         fs::remove_dir_all(folder)?;
         println!(
             "installed {} {} from its verified release",
@@ -192,10 +197,134 @@ fn generate() -> Result {
         "extension/metadata.json",
         serde_json::to_string_pretty(&metadata)? + "\n",
     )?;
+    fs::create_dir_all("extension/resources")?;
+    fs::write("extension/resources/ui.json", ui_resource()?)?;
+    fs::write("extension/lib/contract.js", js_contract()?)?;
+    fs::write("extension/resources/brand-symbolic.svg", brand_svg())?;
     Ok(())
+}
+fn brand_svg() -> String {
+    use nddev_opennetwork_design_tokens::BRAND_MARK;
+    format!(
+        "<!-- Generated from the pinned OpenNetwork brand mark. -->\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"{} {} {} {}\">{}</svg>\n",
+        BRAND_MARK.min_x,
+        BRAND_MARK.min_y,
+        BRAND_MARK.width,
+        BRAND_MARK.height,
+        BRAND_MARK
+            .shapes
+            .iter()
+            .map(|shape| format!("<path fill=\"currentColor\" d=\"{}\"/>", shape.d))
+            .collect::<String>()
+    )
+}
+fn js_contract() -> Result<String> {
+    use serde_json::{Map, Value};
+    let schema: Value =
+        serde_json::from_str(&fs::read_to_string("contracts/snapshot-v1.schema.json")?)?;
+    let mut metrics = Map::new();
+    for group in schema["x-groups"]
+        .as_array()
+        .ok_or("schema groups missing")?
+    {
+        let group = group.as_str().ok_or("invalid schema group")?;
+        let mut fields = Map::new();
+        for key in schema["properties"][group]["x-fields"]
+            .as_array()
+            .ok_or("schema fields missing")?
+        {
+            let key = key.as_str().ok_or("invalid field")?;
+            let field = &schema["properties"][group]["properties"][key];
+            let kind = if field["type"][0] == "integer" {
+                "integer"
+            } else if field["x-unit"] == "percent" {
+                "percent"
+            } else {
+                "number"
+            };
+            fields.insert(key.into(), kind.into());
+        }
+        metrics.insert(group.into(), fields.into());
+    }
+    Ok(format!(
+        "// Generated from contracts/snapshot-v1.schema.json; do not edit.\nexport const PROTOCOL_VERSION = {};\nexport const MAX_LINE = {};\nexport const MAX_INTERVAL = {};\nexport const REALTIME_MS = {};\nexport const METRICS = {};\n",
+        schema["properties"]["v"]["const"],
+        schema["x-max-frame-bytes"],
+        schema["x-cadence"]["maximum-seconds"],
+        schema["x-cadence"]["realtime-ms"],
+        serde_json::to_string_pretty(&metrics)?
+    ))
+}
+fn ui_resource() -> Result<String> {
+    use nddev_opennetwork_design_tokens::{
+        BRAND_MARK, Color, Colors, Density, Direction, Metrics, Platform, Script, TextStyle, Theme,
+        TypeRole,
+    };
+    use serde_json::{Map, Value, json};
+    let mut catalogs = Map::new();
+    let english: BTreeMap<String, String> =
+        serde_json::from_str(&fs::read_to_string("locales/en.json")?)?;
+    for code in ["en", "ru", "kk", "ar", "zh"] {
+        let source = fs::read_to_string(format!("locales/{code}.json"))?;
+        let catalog: BTreeMap<String, String> = serde_json::from_str(&source)?;
+        if !catalog.keys().eq(english.keys()) || catalog.values().any(|text| text.trim().is_empty())
+        {
+            return Err(format!("incomplete locale: {code}").into());
+        }
+        for (key, value) in &catalog {
+            if value.contains("{seconds}") != english[key].contains("{seconds}") {
+                return Err(format!("locale placeholder mismatch: {code}/{key}").into());
+            }
+        }
+        catalogs.insert(code.into(), serde_json::to_value(catalog)?);
+    }
+    let source: toml::Value = toml::from_str(&fs::read_to_string("design-system.toml")?)?;
+    let manifest: toml::Value = toml::from_str(&fs::read_to_string("Cargo.toml")?)?;
+    let dependency = &manifest["workspace"]["dependencies"]["nddev-opennetwork-design-tokens"];
+    if dependency["git"] != source["repository"] || dependency["rev"] != source["revision"] {
+        return Err("design package pin drifted".into());
+    }
+    let hex = |color: Color| format!("#{:02X}{:02X}{:02X}", color.r, color.g, color.b);
+    let mut themes = Map::new();
+    for theme in Theme::ALL {
+        let c = Colors::resolve(theme, Direction::On);
+        themes.insert(theme.id().into(), json!({"surface":hex(c.surface_base), "raised":hex(c.surface_raised), "text":hex(c.text_primary), "secondary":hex(c.text_secondary), "border":hex(c.border_control), "accent":hex(c.accent_text), "focus":hex(c.focus_ring)}));
+    }
+    let mut metrics = Map::new();
+    for density in Density::ALL {
+        let m = Metrics::resolve(Platform::Desktop, density);
+        metrics.insert(density.id().into(), json!({"gap":m.space_2,"small":m.space_1,"padding":m.space_4,"row_padding":m.space_3,"radius":m.radius_md,"icon":m.size_icon,"brand":m.size_brand,"min_width":m.size_featured_card_min,"control":m.size_control_sm,"border":m.border_width_thin}));
+    }
+    let mut typography = Map::new();
+    for (code, script) in [
+        ("en", Script::Latin),
+        ("ru", Script::Cyrillic),
+        ("kk", Script::Cyrillic),
+        ("ar", Script::Arabic),
+        ("zh", Script::Han),
+    ] {
+        let body = TextStyle::resolve(TypeRole::Body, Platform::Desktop, script);
+        let label = TextStyle::resolve(TypeRole::Label, Platform::Desktop, script);
+        typography.insert(
+            code.into(),
+            json!({"body":body.size,"label":label.size,"line_height":body.line_height}),
+        );
+    }
+    let defaults: toml::Value = toml::from_str(&fs::read_to_string("config/default.toml")?)?;
+    let data = json!({"version":version()?,"source":source,"defaults":defaults,"catalogs":catalogs,"themes":themes,"metrics":metrics,"typography":typography,"brand":{"view_box":[BRAND_MARK.min_x,BRAND_MARK.min_y,BRAND_MARK.width,BRAND_MARK.height],"paths":BRAND_MARK.shapes.iter().map(|shape| Value::String(shape.d.into())).collect::<Vec<_>>()}});
+    Ok(serde_json::to_string_pretty(&data)? + "\n")
 }
 fn check() -> Result {
     let version = version()?;
+    if fs::read_to_string("extension/resources/ui.json")? != ui_resource()? {
+        return Err("native resources drifted; run just generate".into());
+    }
+    if fs::read_to_string("extension/lib/contract.js")? != js_contract()? {
+        return Err("native wire contract drifted; run just generate".into());
+    }
+    if fs::read_to_string("extension/resources/brand-symbolic.svg")? != brand_svg() {
+        return Err("native brand mark drifted; run just generate".into());
+    }
     let python: toml::Value = toml::from_str(&fs::read_to_string("python/pyproject.toml")?)?;
     if python["project"]["version"].as_str() != Some(&version)
         || !fs::read_to_string("python/src/rldyour_sysinfo/__init__.py")?
@@ -260,21 +389,6 @@ fn check() -> Result {
             .any(|import| text.contains(import))
         {
             return Err(format!("extension process boundary violation: {}", path.display()).into());
-        }
-        for pattern in [
-            "get_boolean('",
-            "get_int('",
-            "get_string('",
-            "get_double('",
-            "key: '",
-            "settings.bind('",
-        ] {
-            for tail in text.split(pattern).skip(1) {
-                let key = tail.split('\'').next().unwrap();
-                if !schema.contains(&format!("key name=\"{key}\"")) {
-                    return Err(format!("undeclared extension setting: {key}").into());
-                }
-            }
         }
     }
     if cfg!(target_os = "linux") {
@@ -363,6 +477,15 @@ fn build_binaries(release: bool) -> Result<BTreeMap<String, PathBuf>> {
     if !build.wait()?.success() {
         return Err("native binary build failed".into());
     }
+    fs::create_dir_all(".tools")?;
+    fs::write(
+        if release {
+            ".tools/build-release.json"
+        } else {
+            ".tools/build-debug.json"
+        },
+        serde_json::to_string_pretty(&binaries)?,
+    )?;
     Ok(binaries)
 }
 fn run() -> Result {
@@ -371,6 +494,8 @@ fn run() -> Result {
         Some("generate") => generate(),
         Some("check") => check(),
         Some("test") => test(),
+        Some("ui-linux") => linux_ui::run(),
+        Some("ui-linux-session") => linux_ui::session(),
         _ => Err("usage: systeminfo-tools <setup|generate|check|test>".into()),
     }
 }

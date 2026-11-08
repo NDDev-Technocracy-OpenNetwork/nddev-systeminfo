@@ -7,19 +7,19 @@
 /** Shown wherever the host cannot supply a metric. */
 export const ABSENT = '—';
 
-const RATE_UNITS = ['B', 'K', 'M', 'G', 'T'];
+const RATE_UNITS = ['B/s', 'KiB/s', 'MiB/s', 'GiB/s', 'TiB/s', 'PiB/s', 'EiB/s'];
 const RATE_STEP = 1024;
 
 function missing(value) {
-    return value === null || value === undefined || Number.isNaN(value);
+    return typeof value !== 'number' || !Number.isFinite(value);
 }
 
 export function percent(value) {
-    return missing(value) ? ABSENT : `${Math.round(value)}%`;
+    return missing(value) || value < 0 || value > 100 ? ABSENT : `${Math.round(value)}%`;
 }
 
 export function celsius(value) {
-    return missing(value) ? ABSENT : `${Math.round(value)}°`;
+    return missing(value) ? ABSENT : `${Math.round(value)} °C`;
 }
 
 /**
@@ -28,7 +28,7 @@ export function celsius(value) {
  * it to carry information.
  */
 export function rate(value) {
-    if (missing(value))
+    if (missing(value) || value < 0)
         return ABSENT;
 
     let scaled = value;
@@ -39,7 +39,7 @@ export function rate(value) {
     }
 
     const digits = unit > 0 && scaled < 10 ? 1 : 0;
-    return `${scaled.toFixed(digits)}${RATE_UNITS[unit]}`;
+    return `${scaled.toFixed(digits)} ${RATE_UNITS[unit]}`;
 }
 
 /** Directional variants for the panel, where the caption cannot say which is

@@ -1,191 +1,98 @@
-/* rldyour-sysinfo — companion daemon client
- */
-
+// One bounded stream, no polling. Deadlines exist only while awaiting data.
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import {decode, MAX_LINE, MAX_INTERVAL, REALTIME_MS} from './protocol.js';
 
-const SOCKET_NAME = 'rldyour-sysinfo.sock';
-const RECONNECT_SECONDS = 5;
-/** Refuse a line long enough to mean the peer is not our daemon. */
-const MAX_LINE = 4096;
-
-/**
- * Reads newline-delimited samples from the daemon socket.
- *
- * The cadence belongs entirely to the daemon: this client never runs a timer
- * while it is connected, it only waits on the next line. The single timer it
- * can own is the reconnect backoff, which exists because the daemon is allowed
- * to exit when nobody is watching.
- */
 export class Client {
-    /**
-     * @param {number} interval seconds between readings to ask for; 0 is realtime
-     * @param {(sample: object) => void} onSample called for each decoded line
-     * @param {(connected: boolean) => void} onState called when the link changes
-     */
-    constructor(interval, onSample, onState) {
-        this._interval = interval;
-        this._onSample = onSample;
-        this._onState = onState;
-        this._cancellable = new Gio.Cancellable();
-        this._connection = null;
-        this._stream = null;
-        this._reconnectId = 0;
-        this._buffer = new Uint8Array(0);
+    constructor(interval, onSample, onState, transport) {
+        if (!Number.isInteger(interval) || interval < 0 || interval > MAX_INTERVAL)
+            throw new Error('Invalid Systeminfo interval');
+        this._interval = interval; this._onSample = onSample; this._onState = onState;
+        this._timeoutMs = transport.client_timeout_ms; this._retrySeconds = transport.reconnect_seconds;
+        this._cancellable = new Gio.Cancellable(); this._connection = null; this._stream = null;
+        this._reconnectId = 0; this._deadlineId = 0; this._generation = 0; this._connected = false;
+        this._buffer = new Uint8Array(MAX_LINE); this._used = 0;
         this._decoder = new TextDecoder('utf-8', {fatal: true});
         this._connect();
     }
-
+    _current(generation) { return generation === this._generation && !this._cancellable.is_cancelled(); }
     _connect() {
-        const path = GLib.build_filenamev([GLib.get_user_runtime_dir(), SOCKET_NAME]);
-        const client = new Gio.SocketClient();
-
+        const generation = ++this._generation;
+        const path = GLib.build_filenamev([GLib.get_user_runtime_dir(), 'rldyour-sysinfo.sock']);
+        const client = new Gio.SocketClient({timeout: Math.max(1, Math.ceil(this._timeoutMs / 1000))});
+        this._deadline(generation, this._timeoutMs);
         client.connect_async(new Gio.UnixSocketAddress({path}), this._cancellable, (source, result) => {
             let connection;
-            try {
-                connection = source.connect_finish(result);
-            } catch (error) {
-                if (!error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
-                    this._retry();
-                return;
-            }
-
-            if (this._cancellable.is_cancelled()) {
-                connection.close_async(GLib.PRIORITY_DEFAULT, null, null);
-                return;
-            }
-
-            this._connection = connection;
-            this._stream = connection.get_input_stream();
-            this._announce(connection);
-            this._onState(true);
-            this._read();
-        });
-    }
-
-    /**
-     * States the cadence this client wants. The daemon serves the fastest any
-     * client asked for, and treats silence as "no preference", so a failure
-     * here costs the requested interval and nothing else.
-     */
-    _announce(connection) {
-        try {
+            try { connection = source.connect_finish(result); }
+            catch { if (this._current(generation)) this._retry(generation); return; }
+            if (!this._current(generation)) { connection.close_async(GLib.PRIORITY_DEFAULT, null, null); return; }
+            // The GLib absolute deadline includes the requested cadence. A
+            // connect timeout must not become a shorter per-read timeout.
+            connection.get_socket().set_timeout(0);
+            this._connection = connection; this._stream = connection.get_input_stream();
             const bytes = new TextEncoder().encode(`{"interval":${this._interval}}\n`);
-            connection.get_output_stream().write_all_async(bytes, GLib.PRIORITY_DEFAULT, this._cancellable, (source, result) => {
-                try {
-                    source.write_all_finish(result);
-                } catch (error) {
-                    if (!this._cancellable.is_cancelled())
-                        this._retry();
-                }
+            connection.get_output_stream().write_all_async(bytes, GLib.PRIORITY_DEFAULT, this._cancellable, (output, written) => {
+                try { output.write_all_finish(written); }
+                catch { if (this._current(generation)) this._retry(generation); }
             });
-        } catch {
-            // Falls back to whatever the daemon is configured for.
-        }
-    }
-
-    _read() {
-        this._stream.read_bytes_async(MAX_LINE, GLib.PRIORITY_DEFAULT, this._cancellable, (source, result) => {
-            let bytes;
-            try {
-                bytes = source.read_bytes_finish(result).get_data();
-            } catch (error) {
-                if (!error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
-                    this._retry();
-                return;
-            }
-
-            // A null line is a clean close, which happens whenever the daemon
-            // decides nobody needed it any more.
-            if (this._cancellable.is_cancelled())
-                return;
-            if (bytes.length === 0) {
-                this._retry();
-                return;
-            }
-
-            const combined = new Uint8Array(this._buffer.length + bytes.length);
-            combined.set(this._buffer);
-            combined.set(bytes, this._buffer.length);
-            let start = 0;
-            for (let end = 0; end < combined.length; end++) {
-                if (combined[end] !== 10)
-                    continue;
-                if (end - start > MAX_LINE) {
-                    this._retry();
-                    return;
-                }
-                try {
-                    this._decode(this._decoder.decode(combined.subarray(start, end)));
-                } catch {
-                    this._retry();
-                    return;
-                }
-                if (this._stream === null)
-                    return;
-                start = end + 1;
-            }
-            this._buffer = combined.slice(start);
-            if (this._buffer.length > MAX_LINE) {
-                this._retry();
-                return;
-            }
-
-            // The consumer is allowed to stop us from inside the callback
-            // above, which is exactly what the indicator does when the shell
-            // disables the extension. That tears the stream down, so there is
-            // nothing left to continue reading from.
-            if (this._stream !== null)
-                this._read();
+            this._deadline(generation, this._timeoutMs + (this._interval === 0 ? REALTIME_MS : this._interval * 1000));
+            this._read(generation);
         });
     }
-
-    _decode(line) {
-        let sample;
-        try {
-            sample = JSON.parse(line);
-        } catch {
-            // A malformed line means a version skew or a foreign peer. Skipping
-            // it keeps the indicator on its last good reading.
-            return;
-        }
-        // The version byte is the protocol contract: anything else is a
-        // different daemon or a future format this client cannot read.
-        if (sample?.v !== 1)
-            return;
-        this._onSample(sample);
-    }
-
-    _retry() {
-        this._closeConnection();
-        if (this._cancellable.is_cancelled())
-            return;
-        this._onState(false);
-
-        if (this._reconnectId)
-            GLib.Source.remove(this._reconnectId);
-        this._reconnectId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, RECONNECT_SECONDS, () => {
-            this._reconnectId = 0;
-            this._connect();
+    _deadline(generation, milliseconds) {
+        if (this._deadlineId) GLib.Source.remove(this._deadlineId);
+        this._deadlineId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, milliseconds, () => {
+            this._deadlineId = 0;
+            if (this._current(generation)) this._retry(generation);
             return GLib.SOURCE_REMOVE;
         });
     }
-
-    _closeConnection() {
-        if (this._connection)
-            this._connection.close_async(GLib.PRIORITY_DEFAULT, null, null);
-        this._connection = null;
-        this._stream = null;
-        this._buffer = new Uint8Array(0);
+    _read(generation) {
+        this._stream.read_bytes_async(MAX_LINE, GLib.PRIORITY_DEFAULT, this._cancellable, (source, result) => {
+            let bytes;
+            try { bytes = source.read_bytes_finish(result).get_data(); }
+            catch { if (this._current(generation)) this._retry(generation); return; }
+            if (!this._current(generation)) return;
+            if (bytes.length === 0) { this._retry(generation); return; }
+            try {
+                let start = 0;
+                while (start < bytes.length) {
+                    const newline = bytes.indexOf(10, start);
+                    const end = newline === -1 ? bytes.length : newline;
+                    if (this._used + end - start > MAX_LINE) throw new Error('Oversized Systeminfo frame');
+                    this._buffer.set(bytes.subarray(start, end), this._used); this._used += end - start;
+                    if (newline === -1) break;
+                    const sample = decode(this._decoder.decode(this._buffer.subarray(0, this._used)));
+                    this._used = 0;
+                    this._deadline(generation, this._timeoutMs + (this._interval === 0 ? REALTIME_MS : this._interval * 1000));
+                    if (!this._connected) { this._connected = true; this._onState(true); }
+                    if (!this._current(generation)) return;
+                    this._onSample(sample);
+                    if (!this._current(generation)) return;
+                    start = end + 1;
+                }
+            } catch { this._retry(generation); return; }
+            if (this._current(generation)) this._read(generation);
+        });
     }
-
-    /** Releases the socket and the reconnect timer. The client is done after this. */
+    _retry(generation) {
+        if (!this._current(generation)) return;
+        this._closeConnection(); this._onState(false);
+        if (this._cancellable.is_cancelled()) return;
+        if (this._reconnectId) GLib.Source.remove(this._reconnectId);
+        this._reconnectId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, this._retrySeconds, () => {
+            this._reconnectId = 0; this._connect(); return GLib.SOURCE_REMOVE;
+        });
+    }
+    _closeConnection() {
+        ++this._generation;
+        if (this._deadlineId) GLib.Source.remove(this._deadlineId);
+        this._deadlineId = 0;
+        this._connection?.close_async(GLib.PRIORITY_DEFAULT, null, null);
+        this._connection = null; this._stream = null; this._used = 0; this._connected = false;
+    }
     stop() {
-        if (this._reconnectId)
-            GLib.Source.remove(this._reconnectId);
-        this._reconnectId = 0;
-
-        this._cancellable.cancel();
-        this._closeConnection();
+        if (this._reconnectId) GLib.Source.remove(this._reconnectId);
+        this._reconnectId = 0; this._cancellable.cancel(); this._closeConnection();
     }
 }

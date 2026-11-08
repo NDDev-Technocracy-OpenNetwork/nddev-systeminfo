@@ -1,0 +1,7 @@
+repository = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-opennetwork-design-system"
+revision = "dbdf11b27fc6245b7942ad3e271f171602fce931"
+release = "v0.0.1-alpha.9"
+license = "Apache-2.0"
+
+# Native system menus retain platform colors and fonts. Opaque custom content
+# consumes the released desktop tokens. No private corporate package is used.

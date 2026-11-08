@@ -22,11 +22,11 @@ function check(actual, expected, label) {
 print('=== format ===');
 check(percent(55.4), '55%', 'percent(55.4)');
 check(percent(null), ABSENT, 'percent(null)');
-check(celsius(88.6), '89°', 'celsius(88.6)');
-check(rate(0), '0B', 'rate(0)');
-check(rate(7991), '7.8K', 'rate(7991)');
-check(rate(342578), '335K', 'rate(342578)');
-check(rate(2 * 1024 * 1024 * 1024), '2.0G', 'rate(2GiB)');
+check(celsius(88.6), '89 °C', 'celsius(88.6)');
+check(rate(0), '0 B/s', 'rate(0)');
+check(rate(7991), '7.8 KiB/s', 'rate(7991)');
+check(rate(342578), '335 KiB/s', 'rate(342578)');
+check(rate(2 * 1024 * 1024 * 1024), '2.0 GiB/s', 'rate(2GiB)');
 check(rate(null), ABSENT, 'rate(null)');
 
 print('\n=== client against a live daemon ===');
@@ -40,7 +40,7 @@ const client = new Client(REQUESTED_INTERVAL, sample => {
           `ram=${percent(sample.memory.used)} gpu=${percent(sample.gpu.usage)}/${celsius(sample.gpu.temp)} ` +
           `net=↓${rate(sample.net.rx)} ↑${rate(sample.net.tx)}`);
     if (samples >= 2) { client.stop(); loop.quit(); }
-}, connected => print(`  connection: ${connected ? 'up' : 'lost'}`));
+}, connected => print(`  connection: ${connected ? 'up' : 'lost'}`), {client_timeout_ms: 5000, reconnect_seconds: 1});
 
 GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 25, () => {
     print('  ✗ timed out waiting for samples'); failures++; client.stop(); loop.quit();

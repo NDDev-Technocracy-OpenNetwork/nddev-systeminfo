@@ -7,9 +7,11 @@ fn main() {
     let schema: Value = serde_json::from_str(&fs::read_to_string(source).unwrap()).unwrap();
     let version = schema["properties"]["v"]["const"].as_u64().unwrap();
     let maximum = schema["x-max-frame-bytes"].as_u64().unwrap();
+    let max_interval = schema["x-cadence"]["maximum-seconds"].as_u64().unwrap();
+    let realtime_ms = schema["x-cadence"]["realtime-ms"].as_u64().unwrap();
     let groups = schema["x-groups"].as_array().unwrap();
     let mut flat = format!(
-        "pub const PROTOCOL_VERSION: u32 = {version};\npub const MAX_FRAME_BYTES: usize = {maximum};\n#[derive(Clone, Copy, Default)]\npub struct Snapshot {{\n"
+        "pub const PROTOCOL_VERSION: u32 = {version};\npub const MAX_FRAME_BYTES: usize = {maximum};\npub const MAX_INTERVAL: u64 = {max_interval};\npub const REALTIME_MS: u64 = {realtime_ms};\n#[derive(Clone, Copy, Default)]\npub struct Snapshot {{\n"
     );
     let mut wire = String::from(
         "#[derive(Clone, serde::Deserialize, serde::Serialize)]\npub struct WireSnapshot {\n    pub v: u32,\n",

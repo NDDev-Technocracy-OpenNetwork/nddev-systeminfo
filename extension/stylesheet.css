@@ -1,33 +1,4 @@
-/* rldyour-sysinfo
- * SPDX-License-Identifier: AGPL-3.0-or-later
- *
- * St implements a subset of CSS. Only properties it is known to honour appear
- * here; anything visual that St cannot express is set on the actor instead.
- * Values are monospaced so a changing digit never reflows the panel.
- */
-
-.rldyour-panel {
-    spacing: 10px;
-}
-
-.rldyour-cell {
-    spacing: 4px;
-}
-
-.rldyour-caption {
-    font-size: 0.75em;
-    font-weight: bold;
-}
-
-.rldyour-value {
-    font-family: monospace;
-    font-size: 0.95em;
-}
-
-.rldyour-row-title {
-    padding-right: 24px;
-}
-
-.rldyour-row-value {
-    font-family: monospace;
-}
+/* Layout and opaque custom surfaces come from the released OpenNetwork tokens.
+ * The panel and system menus retain their native, accessible theme. */
+.systeminfo-caption { font-size: 0.75em; font-weight: bold; }
+.systeminfo-value { font-family: monospace; }

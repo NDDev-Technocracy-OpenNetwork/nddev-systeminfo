@@ -12,6 +12,7 @@ let connection;
 let samples = 0;
 let states = 0;
 let failure = null;
+const frame = JSON.stringify({v: 1, cpu: {usage: null, temp: null}, memory: {used: null, swap: null}, gpu: {usage: null, memory: null, temp: null}, disk: {read: null, write: null, temp: null}, net: {rx: null, tx: null}});
 let timeout = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 5, () => {
     timeout = 0;
     failure = 'client timed out';
@@ -23,10 +24,10 @@ listener.accept_async(null, (source, result) => {
     [connection] = source.accept_finish(result);
     const output = connection.get_output_stream();
     // One partial frame, then its tail and a second frame in a single read.
-    const first = new TextEncoder().encode('{"v":');
+    const first = new TextEncoder().encode(frame.slice(0, 5));
     output.write_all(first, null);
     GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-        output.write_all(new TextEncoder().encode('1}\n{"v":1}\n'), null);
+        output.write_all(new TextEncoder().encode(`${frame.slice(5)}\n${frame}\n`), null);
         return GLib.SOURCE_REMOVE;
     });
 });
@@ -39,7 +40,7 @@ client = new Client(5, sample => {
         client.stop(); // A consumer may stop during the read callback.
         loop.quit();
     }
-}, connected => { if (connected) states++; });
+}, connected => { if (connected) states++; }, {client_timeout_ms: 2000, reconnect_seconds: 1});
 loop.run();
 client.stop();
 connection?.close(null);
