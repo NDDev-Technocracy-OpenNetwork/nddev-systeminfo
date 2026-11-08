@@ -1,4 +1,4 @@
-//! Creator-thread Win32 analysis window. Standard BUTTON/COMBOBOX controls keep
+//! Creator-thread Win32 analysis window. Standard STATIC/BUTTON/COMBOBOX controls keep
 //! keyboard and accessibility semantics; only painting is application-owned.
 use super::{ffi::*, wide};
 use std::{
@@ -131,7 +131,7 @@ impl Window {
                 0x00010000,
                 class.as_ptr(),
                 wide(&model.title).as_ptr(),
-                0x00cf0000 | 0x00200000,
+                0x00cf0000 | 0x00200000 | 0x02000000,
                 area.left + (area.right - area.left - width).max(0) / 2,
                 area.top + (area.bottom - area.top - height).max(0) / 2,
                 width,
@@ -342,19 +342,30 @@ impl Surface {
                         .map(|a| (a.id, a.text.clone(), false))
                         .collect(),
                     Row::Choice { id, .. } => vec![(*id, String::new(), true)],
+                    Row::Text(text) => vec![(0, gdi_text(text), false)],
                     _ => Vec::new(),
                 };
                 for (index, (id, text, choice)) in items.into_iter().enumerate() {
-                    let class = wide(if choice { "COMBOBOX" } else { "BUTTON" });
+                    let class = wide(if id == 0 {
+                        "STATIC"
+                    } else if choice {
+                        "COMBOBOX"
+                    } else {
+                        "BUTTON"
+                    });
                     let handle = CreateWindowExW(
                         if self.model.rtl { 0x00400000 } else { 0 },
                         class.as_ptr(),
                         wide(&text).as_ptr(),
-                        0x50010000
-                            | if choice {
-                                0x00200000 | 3 | 0x10 | 0x200
+                        0x50000000
+                            | if id == 0 {
+                                // Native labels expose live readings to assistive
+                                // technology without adding keyboard stops.
+                                0x80 | 0x4000 | if self.model.rtl { 2 } else { 0 }
+                            } else if choice {
+                                0x00010000 | 0x00200000 | 3 | 0x10 | 0x200
                             } else {
-                                0x0000000b
+                                0x00010000 | 0x0000000b
                             },
                         0,
                         0,
@@ -495,6 +506,14 @@ impl Surface {
                             MoveWindow(control.handle, padding, y, width, choice_height, 1);
                             SendMessageW(control.handle, 0x014e, *selected, 0);
                         }
+                        Row::Text(text) => {
+                            MoveWindow(control.handle, padding, y, width, height, 1);
+                            let text = gdi_text(text);
+                            if control.text != text {
+                                SetWindowTextW(control.handle, wide(&text).as_ptr());
+                                control.text = text;
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -545,33 +564,6 @@ impl Surface {
             let mut paint: Paint = zeroed();
             let dc = BeginPaint(self.window, &mut paint);
             FillRect(dc, &paint.rectangle, self.background);
-            let old = SelectObject(dc, self.font);
-            SetBkMode(dc, 1);
-            SetTextColor(dc, self.model.colors[2]);
-            let padding = self.px(self.model.padding);
-            let gap = self.px(self.model.gap);
-            let mut client: Rectangle = zeroed();
-            GetClientRect(self.window, &mut client);
-            let mut y = padding - self.scroll;
-            for row in &self.model.rows {
-                let height = self.row_height(row);
-                if let Row::Text(text) = row {
-                    let mut rect = Rectangle {
-                        left: padding,
-                        top: y,
-                        right: client.right - padding,
-                        bottom: y + height,
-                    };
-                    DrawTextW(
-                        dc,
-                        wide(&gdi_text(text)).as_ptr(),
-                        -1,
-                        &mut rect,
-                        0x10 | 0x800 | 0x8000 | if self.model.rtl { 0x20000 | 2 } else { 0 },
-                    );
-                }
-                y += height + gap;
-            }
             for (rect, points) in &self.plots {
                 let brush = CreateSolidBrush(self.model.colors[1]);
                 FillRect(dc, rect, brush);
@@ -611,7 +603,6 @@ impl Surface {
                 SelectObject(dc, previous);
                 DeleteObject(ink);
             }
-            SelectObject(dc, old);
             EndPaint(self.window, &paint);
         }
     }
@@ -774,6 +765,15 @@ unsafe extern "system" fn procedure(
                 0
             }
             0x0014 => 1,
+            0x0138 => {
+                // WM_CTLCOLORSTATIC lends the label DC for this callback. The
+                // returned brush is Surface-owned and outlives native painting.
+                let dc = wparam as Handle;
+                SetBkMode(dc, 2);
+                SetTextColor(dc, s.model.colors[2]);
+                SetBkColor(dc, s.model.colors[0]);
+                s.background as isize
+            }
             0x0005 => {
                 s.layout();
                 InvalidateRect(window, null(), 1);
@@ -980,6 +980,7 @@ unsafe extern "system" {
     ) -> Handle;
     fn SelectObject(dc: Handle, object: Handle) -> Handle;
     fn SetBkMode(dc: Handle, mode: i32) -> i32;
+    fn SetBkColor(dc: Handle, color: u32) -> u32;
     fn SetTextColor(dc: Handle, color: u32) -> u32;
     fn RoundRect(
         dc: Handle,

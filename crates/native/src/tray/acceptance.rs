@@ -172,6 +172,41 @@ pub fn capture_dashboard(path: &Path) -> io::Result<bool> {
     };
     capture_window(window, path)
 }
+/// Read standard label names, which Windows exposes to assistive clients.
+pub fn dashboard_labels() -> io::Result<Vec<String>> {
+    let Some(window) = dashboard_window() else {
+        return Ok(Vec::new());
+    };
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetWindowTextW(window: Handle, text: *mut u16, count: i32) -> i32;
+    }
+    let mut labels = Vec::new();
+    let mut after = null_mut();
+    // SAFETY: enumerate only standard child labels of our verified own window.
+    // The bounded UTF-16 buffer lives through each synchronous native read.
+    unsafe {
+        for _ in 0..512 {
+            let label = FindWindowExW(
+                window,
+                after,
+                super::wide("STATIC").as_ptr(),
+                std::ptr::null(),
+            );
+            if label.is_null() {
+                return Ok(labels);
+            }
+            let mut text = vec![0_u16; 16385];
+            let length = GetWindowTextW(label, text.as_mut_ptr(), text.len() as i32);
+            if length < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            labels.push(String::from_utf16_lossy(&text[..length as usize]));
+            after = label;
+        }
+    }
+    Err(io::Error::other("native label enumeration exceeded bounds"))
+}
 pub fn click_dashboard(id: u32) -> io::Result<bool> {
     disposable_desktop()?;
     let Some(window) = dashboard_window() else {

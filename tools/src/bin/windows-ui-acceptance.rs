@@ -187,11 +187,24 @@ mod desktop {
             .unwrap();
             tray::acceptance::focus(&tray).unwrap();
             let proxy = tray.proxy();
-            proxy.dashboard(Some(nddev_systeminfo::windows_ui::native_analysis_model(
+            let analysis = nddev_systeminfo::windows_ui::native_analysis_model(
                 &config,
                 &cpu,
                 Some("cpu.usage"),
-            )));
+            );
+            let expected_labels: Vec<_> = analysis
+                .rows
+                .iter()
+                .filter_map(|row| {
+                    if let tray::dashboard::Row::Text(text) = row {
+                        Some(text.replace(['\u{2068}', '\u{2069}'], "\u{200e}"))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert!(!expected_labels.is_empty());
+            proxy.dashboard(Some(analysis));
             let capture = proxy.clone();
             let path = artifacts.join(format!("analysis-{code}-{theme}.png"));
             let core_path = artifacts.join(format!("core-{code}-{theme}.png"));
@@ -206,6 +219,10 @@ mod desktop {
                     );
                     thread::sleep(Duration::from_millis(10));
                 }
+                assert_eq!(
+                    tray::acceptance::dashboard_labels().unwrap(),
+                    expected_labels
+                );
                 let opened = resources();
                 assert!(tray::acceptance::click_dashboard(11000).unwrap());
                 assert_eq!(
