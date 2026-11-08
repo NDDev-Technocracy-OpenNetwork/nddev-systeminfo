@@ -203,3 +203,15 @@ unsafe extern "system" {
         timeout: u32,
     ) -> u32;
 }
+#[link(name = "advapi32")]
+unsafe extern "system" {
+    pub(super) fn RegGetValueW(
+        key: Handle,
+        subkey: *const u16,
+        value: *const u16,
+        flags: u32,
+        kind: *mut u32,
+        data: *mut c_void,
+        size: *mut u32,
+    ) -> i32;
+}

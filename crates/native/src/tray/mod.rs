@@ -4,6 +4,7 @@
 mod ffi;
 use ffi::*;
 use std::{
+    cell::Cell,
     io,
     marker::PhantomData,
     mem::{size_of, zeroed},
@@ -19,7 +20,10 @@ const UPDATE: u32 = 0x8002;
 const OPEN: u32 = 0x8003;
 const CONFIG_CHANGED: u32 = 0x8004;
 const THEME_CHANGED: u32 = 0x8005;
+const CANCEL_MENU: u32 = 0x8006;
 const CLOSE: u32 = 0x0010;
+thread_local! { static DEFERRED: Cell<u8> = const { Cell::new(0) }; }
+static TASKBAR_MESSAGE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum Entry {
@@ -78,6 +82,9 @@ impl Proxy {
     }
     pub fn open_menu(&self) {
         self.post(OPEN);
+    }
+    pub fn cancel_menu(&self) {
+        self.post(CANCEL_MENU);
     }
     pub fn watch_config(&self, path: &Path) -> io::Result<Watcher> {
         Watcher::new(path, self.clone())
@@ -182,6 +189,7 @@ impl Tray {
             pending: false,
         })));
         let taskbar_created = unsafe { RegisterWindowMessageW(wide("TaskbarCreated").as_ptr()) };
+        TASKBAR_MESSAGE.store(taskbar_created, std::sync::atomic::Ordering::Relaxed);
         let mut tray = Self {
             window,
             instance,
@@ -268,6 +276,19 @@ impl Tray {
                     if let Some(command) = self.menu()? {
                         on_event(Event::Command(command), &self.proxy);
                     }
+                    // Native popup tracking runs a nested message loop. Its
+                    // procedure records our wakeups instead of dropping them.
+                    let deferred = DEFERRED.with(|value| value.replace(0));
+                    if deferred & 2 != 0 {
+                        on_event(Event::ConfigurationChanged, &self.proxy);
+                    }
+                    if deferred & 4 != 0 {
+                        on_event(Event::AppearanceChanged, &self.proxy);
+                    }
+                    self.refresh()?;
+                    if deferred & 8 != 0 {
+                        self.add_icon()?;
+                    }
                     unsafe {
                         Shell_NotifyIconW(3, &self.data);
                     }
@@ -340,6 +361,28 @@ unsafe extern "system" fn procedure(
     // integer-only; no panic, userdata dereference, allocation or Rust callback.
     unsafe {
         match message {
+            UPDATE | CONFIG_CHANGED | THEME_CHANGED => {
+                let flag = if message == UPDATE {
+                    1
+                } else if message == CONFIG_CHANGED {
+                    2
+                } else {
+                    4
+                };
+                DEFERRED.with(|value| value.set(value.get() | flag));
+                0
+            }
+            value
+                if value != 0
+                    && value == TASKBAR_MESSAGE.load(std::sync::atomic::Ordering::Relaxed) =>
+            {
+                DEFERRED.with(|value| value.set(value.get() | 8));
+                0
+            }
+            CANCEL_MENU => {
+                EndMenu();
+                0
+            }
             CLOSE => {
                 PostQuitMessage(0);
                 0
@@ -488,8 +531,23 @@ pub fn system_appearance() -> (bool, bool, [u8; 3]) {
             ((color >> 8) & 255) as u8,
             ((color >> 16) & 255) as u8,
         ];
-        let dark =
+        let mut dark =
             (background & 255) + ((background >> 8) & 255) + ((background >> 16) & 255) < 384;
+        let mut light: u32 = 1;
+        let mut length = size_of::<u32>() as u32;
+        if RegGetValueW(
+            (-2147483647_isize) as Handle,
+            wide("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize").as_ptr(),
+            wide("SystemUsesLightTheme").as_ptr(),
+            0x10,
+            null_mut(),
+            (&mut light as *mut u32).cast(),
+            &mut length,
+        ) == 0
+            && light <= 1
+        {
+            dark = light == 0;
+        }
         (dark, contrast.flags & 1 != 0, rgb)
     }
 }
@@ -623,5 +681,88 @@ impl Drop for Watcher {
         unsafe {
             CloseHandle(self.stop as Handle);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn model() -> Model {
+        Model {
+            tooltip: "NDDev Systeminfo · العربية · Қазақша".into(),
+            entries: vec![
+                Entry::Label("Processor: 12%".into()),
+                Entry::Separator,
+                Entry::Submenu {
+                    title: "Settings".into(),
+                    entries: vec![Entry::Action {
+                        id: 1,
+                        title: "Realtime".into(),
+                        enabled: true,
+                        checked: true,
+                    }],
+                },
+            ],
+            rtl: true,
+            icon: vec![255; 32 * 32 * 4],
+            icon_side: 32,
+        }
+    }
+    #[test]
+    fn native_layouts_match_the_windows_x64_sdk() {
+        assert_eq!(size_of::<WindowClass>(), 72);
+        assert_eq!(size_of::<NotifyIcon>(), 976);
+        assert_eq!(size_of::<Message>(), 48);
+        assert_eq!(size_of::<BitmapHeader>(), 40);
+        assert_eq!(std::mem::offset_of!(NotifyIcon, icon), 32);
+        assert_eq!(std::mem::offset_of!(NotifyIcon, version), 816);
+    }
+    #[test]
+    fn native_icon_menu_watch_and_window_ownership_repeatedly_close() {
+        for attempt in 0..3 {
+            let identity = format!(
+                "org.nddev.systeminfo.test.{}.{}",
+                std::process::id(),
+                attempt
+            );
+            let tray = Tray::new(&identity, model()).unwrap().unwrap();
+            assert!(Tray::new(&identity, model()).unwrap().is_none());
+            assert!(tray.dpi() >= 96);
+            let proxy = tray.proxy();
+            let directory = std::env::temp_dir().join(&identity);
+            std::fs::create_dir(&directory).unwrap();
+            let file = directory.join("config.toml");
+            let watcher = tray.watch_config(&file).unwrap();
+            assert_eq!(watcher.directory(), directory);
+            let writer_file = file.clone();
+            let writer = std::thread::spawn(move || {
+                std::fs::write(writer_file, "[display]\nlocale=\"ar\"\n").unwrap()
+            });
+            let mut observed = false;
+            tray.run(|event, _| {
+                if let Event::ConfigurationChanged = event {
+                    if std::fs::read_to_string(&file).is_ok_and(|text| text.contains("ar")) {
+                        observed = true;
+                        proxy.close();
+                    }
+                }
+            })
+            .unwrap();
+            assert!(observed);
+            drop(watcher);
+            writer.join().unwrap();
+            // A stale proxy is inert after native Drop; it cannot address a new
+            // window which later reuses the same numeric handle.
+            proxy.update(model());
+            proxy.close();
+            std::fs::remove_dir_all(directory).unwrap();
+        }
+        assert!(!system_language().is_empty());
+        let _ = system_appearance();
+        let menu = create_menu(&model().entries).unwrap();
+        drop(menu);
+        let mut invalid = model();
+        invalid.icon_side = 1;
+        assert!(create_icon(&invalid).is_err());
     }
 }

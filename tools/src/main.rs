@@ -244,7 +244,9 @@ fn brand_mask() -> Result<Vec<u8>> {
         }
         polygons.push(
             numbers
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|point| (point[0], point[1]))
                 .collect::<Vec<_>>(),
         );

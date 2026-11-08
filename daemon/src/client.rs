@@ -235,4 +235,18 @@ mod tests {
         );
         assert!(started.elapsed() < Duration::from_secs(2));
     }
+    #[test]
+    fn native_ui_cancellation_interrupts_an_idle_socket() {
+        let peer = Peer::start(|mut socket| {
+            let mut byte = [0];
+            let _ = socket.read(&mut byte);
+        });
+        let mut client = Client::connect(&peer.path, 60, Duration::from_secs(5)).unwrap();
+        let cancellation = client.cancellation().unwrap();
+        let (done, wait) = std::sync::mpsc::sync_channel(1);
+        let task = thread::spawn(move || done.send(client.next_sample().is_err()).unwrap());
+        cancellation.cancel();
+        assert!(wait.recv_timeout(Duration::from_secs(1)).unwrap());
+        task.join().unwrap();
+    }
 }
