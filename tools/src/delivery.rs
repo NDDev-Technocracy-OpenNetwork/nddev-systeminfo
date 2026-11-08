@@ -559,6 +559,49 @@ pub(super) fn publish() -> Result {
 
 /// Signing consumes the original qualified Debian bytes, independently of the
 /// release's own checksum file. The private signing key is never read here.
+pub(super) fn fetch_deb() -> Result {
+    let tag = std::env::var("RELEASE_TAG")?;
+    if !tag.starts_with('v')
+        || tag[1..].split('.').count() != 3
+        || !tag[1..].bytes().all(|c| c.is_ascii_digit() || c == b'.')
+    {
+        return Err("invalid stable release tag".into());
+    }
+    let (_, github) = configuration()?;
+    let release = github.api("GET", &format!("releases/tags/{tag}"), None)?;
+    if release["draft"] != false
+        || release["prerelease"] != false
+        || github.api("GET", "releases/latest", None)?["tag_name"] != tag
+    {
+        return Err("APT publication requires the latest published stable release".into());
+    }
+    fs::create_dir_all("released")?;
+    command(
+        "gh",
+        &[
+            "release",
+            "download",
+            &tag,
+            "--repo",
+            &github.repository,
+            "--dir",
+            "released",
+            "--pattern",
+            "*.deb",
+        ],
+    )?;
+    for file in files(Path::new("released"))? {
+        let output = Command::new("dpkg-deb")
+            .arg("--field")
+            .arg(file)
+            .arg("Version")
+            .output()?;
+        if !output.status.success() || String::from_utf8(output.stdout)?.trim() != &tag[1..] {
+            return Err("Debian package version differs from released tag".into());
+        }
+    }
+    Ok(())
+}
 pub(super) fn verify_deb() -> Result {
     verify_distribution("debian-amd64", "deb")
 }

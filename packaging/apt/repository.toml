@@ -1,0 +1,9 @@
+origin = "NDDev OpenNetwork"
+# Keep the label and public key to preserve the existing APT trust decision.
+label = "rldyour-sysinfo"
+suite = "stable"
+architecture = "amd64"
+component = "main"
+package = "nddev-systeminfo"
+transition = "rldyour-sysinfo"
+key = "rldyour-sysinfo.asc"

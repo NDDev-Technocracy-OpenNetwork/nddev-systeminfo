@@ -1,5 +1,7 @@
 //! Reproducible source checks, tools and packaging. Run builds on a build host.
 use serde::Deserialize;
+#[cfg(target_os = "linux")]
+mod apt;
 mod clients;
 #[cfg(target_os = "linux")]
 mod debian;
@@ -783,6 +785,11 @@ fn run() -> Result {
         Some("publish") => delivery::publish(),
         Some("verify-deb") => delivery::verify_deb(),
         Some("verify-python") => delivery::verify_python(),
+        Some("apt-fetch") => delivery::fetch_deb(),
+        #[cfg(target_os = "linux")]
+        Some("apt-build") => apt::build(),
+        #[cfg(target_os = "linux")]
+        Some("apt-test") => apt::test(),
         Some("prepare-delivery") => {
             fs::create_dir_all(".tools/bin")?;
             fs::copy(std::env::current_exe()?, binary("systeminfo-delivery"))?;
