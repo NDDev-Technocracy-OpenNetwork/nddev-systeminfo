@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.9 — 2026-11-09
+
+- Select and qualify the compatible serde_spanned/toml_datetime 1.1.2 patch
+  family for TOML 1.2 configuration, native installation and packaging.
+- Keep existing GPU, logical-core, bounded history and native UI behavior.
+
 ## 0.3.8 — 2026-11-09
 
 - Restore utilization, temperature, memory and names from awake NVIDIA adapters
