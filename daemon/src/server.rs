@@ -1,168 +1,163 @@
-//! Bounded client admission and one shared sampling clock. Connecting never
-//! triggers an extra hardware read; slow readers are disconnected instead of
-//! blocking another client's next sample.
+//! One demand-driven hardware sampler. An idle resident owns no collector.
+use nddev_systeminfo::config::{Config, Transport, cadence};
+use nddev_systeminfo_native::{
+    Collector,
+    transport::{UnixListener, UnixStream},
+};
+use std::{
+    io::{self, Read, Write},
+    sync::mpsc::{self, Receiver, RecvTimeoutError, TrySendError},
+    time::{Duration, Instant},
+};
 
-use crate::collector::Collector;
-use crate::transport::{UnixListener, UnixStream};
-use std::io::{self, Read, Write};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TrySendError};
-use std::time::{Duration, Instant};
-
-const DEFAULT_INTERVAL: Duration = Duration::from_secs(5);
-const MAX_INTERVAL: u64 = 60;
-const REALTIME_INTERVAL: Duration = Duration::from_millis(500);
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(250);
-const MAX_HANDSHAKE: usize = 256;
-const MAX_CLIENTS: usize = 32;
-const IDLE_EXIT: Duration = Duration::from_secs(30);
-const ACCEPT_STACK: usize = 64 * 1024;
-
-pub fn serve(listener: UnixListener, activated: bool) -> io::Result<()> {
-    let mut collector = Collector::new()?;
-    let clients = accept_loop(listener)?;
-    let mut connected = Vec::with_capacity(MAX_CLIENTS);
-    let configured = interval();
-    let mut line = String::with_capacity(512);
-    collector.sample().encode(&mut line);
-    let mut sampled_at = Instant::now();
-    let mut idle_since = Some(sampled_at);
-
+pub(super) fn serve(listener: UnixListener, activated: bool, config: &Config) -> io::Result<()> {
+    let clients = accept_loop(listener, config.transport)?;
+    let mut connected = Vec::with_capacity(config.transport.max_clients);
+    let mut sampler = Sampler {
+        collector: None,
+        sampled_at: None,
+        line: String::with_capacity(512),
+        gpu: config.sampling.gpu,
+    };
+    let configured = config.interval();
+    let idle_limit = Duration::from_secs(config.sampling.idle_release_seconds);
+    let mut idle_since = Instant::now();
     loop {
-        let wait = if connected.is_empty() {
-            IDLE_EXIT.saturating_sub(idle_since.unwrap_or(sampled_at).elapsed())
-        } else {
-            cadence(&connected, configured).saturating_sub(sampled_at.elapsed())
-        };
-        match clients.recv_timeout(wait) {
-            Ok(client) => {
-                refresh_for_client(
-                    &client,
-                    &mut collector,
-                    &mut sampled_at,
-                    &mut line,
-                    &mut connected,
-                    configured,
-                );
-                admit(client, &mut connected, line.as_bytes());
+        let next = if connected.is_empty() {
+            if sampler.collector.is_none() && !activated {
+                None
+            } else {
+                Some(idle_limit.saturating_sub(idle_since.elapsed()))
             }
+        } else {
+            Some(
+                requested_cadence(&connected, configured).saturating_sub(
+                    sampler
+                        .sampled_at
+                        .expect("connected clients have a sample")
+                        .elapsed(),
+                ),
+            )
+        };
+        let incoming = match next {
+            Some(wait) => clients.recv_timeout(wait),
+            None => clients.recv().map_err(|_| RecvTimeoutError::Disconnected),
+        };
+        match incoming {
+            Ok(client) => sampler.admit(
+                client,
+                &mut connected,
+                config.transport.max_clients,
+                configured,
+            )?,
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
                 return Err(io::Error::other("accept thread stopped"));
             }
         }
-        // A continuously connecting peer cannot keep us draining forever.
-        for _ in 1..MAX_CLIENTS {
+        for _ in 1..config.transport.max_clients {
             let Ok(client) = clients.try_recv() else {
                 break;
             };
-            refresh_for_client(
-                &client,
-                &mut collector,
-                &mut sampled_at,
-                &mut line,
+            sampler.admit(
+                client,
                 &mut connected,
+                config.transport.max_clients,
                 configured,
-            );
-            admit(client, &mut connected, line.as_bytes());
+            )?;
         }
-
-        if !connected.is_empty() && sampled_at.elapsed() >= cadence(&connected, configured) {
-            collector.sample().encode(&mut line);
-            sampled_at = Instant::now();
-            connected.retain_mut(|client| client.stream.write_all(line.as_bytes()).is_ok());
+        if !connected.is_empty()
+            && sampler
+                .sampled_at
+                .is_none_or(|at| at.elapsed() >= requested_cadence(&connected, configured))
+        {
+            sampler.refresh(&mut connected)?;
         }
         if connected.is_empty() {
-            let since = idle_since.get_or_insert_with(Instant::now);
-            if since.elapsed() >= IDLE_EXIT {
+            if idle_since.elapsed() >= idle_limit {
                 if activated {
                     return Ok(());
                 }
-                // Standalone/Windows waits on the channel indefinitely; it
-                // neither polls nor samples hardware when nobody is watching.
-                let client = clients
-                    .recv()
-                    .map_err(|_| io::Error::other("accept thread stopped"))?;
-                refresh_for_client(
-                    &client,
-                    &mut collector,
-                    &mut sampled_at,
-                    &mut line,
-                    &mut connected,
-                    configured,
-                );
-                admit(client, &mut connected, line.as_bytes());
-                if !connected.is_empty() {
-                    idle_since = None;
-                }
+                // Drop NVML, ports and open procfs/sysfs handles before blocking.
+                sampler.release();
             }
         } else {
-            idle_since = None;
+            idle_since = Instant::now();
         }
     }
 }
 
-fn refresh_for_client(
-    client: &Client,
-    collector: &mut Collector,
-    sampled_at: &mut Instant,
-    line: &mut String,
-    connected: &mut Vec<Client>,
-    configured: Duration,
-) {
-    if connected.len() == MAX_CLIENTS {
-        return;
+struct Sampler {
+    collector: Option<Collector>,
+    sampled_at: Option<Instant>,
+    line: String,
+    gpu: bool,
+}
+impl Sampler {
+    fn refresh(&mut self, connected: &mut Vec<Client>) -> io::Result<()> {
+        if self.collector.is_none() {
+            self.collector = Some(Collector::new(self.gpu)?);
+            tracing::debug!(event.name = "systeminfo.collector.started");
+        }
+        self.collector
+            .as_mut()
+            .expect("initialized collector")
+            .sample()
+            .encode(&mut self.line);
+        self.sampled_at = Some(Instant::now());
+        connected.retain_mut(|client| client.stream.write_all(self.line.as_bytes()).is_ok());
+        Ok(())
     }
-    let wanted = connected
-        .iter()
-        .filter_map(|client| client.requested)
-        .chain(client.requested)
-        .min()
-        .unwrap_or(configured);
-    if sampled_at.elapsed() >= wanted {
-        collector.sample().encode(line);
-        *sampled_at = Instant::now();
-        connected.retain_mut(|client| client.stream.write_all(line.as_bytes()).is_ok());
+    fn admit(
+        &mut self,
+        client: Client,
+        connected: &mut Vec<Client>,
+        limit: usize,
+        configured: Duration,
+    ) -> io::Result<()> {
+        if connected.len() == limit {
+            return Ok(());
+        }
+        let wanted = connected
+            .iter()
+            .filter_map(|client| client.requested)
+            .chain(client.requested)
+            .min()
+            .unwrap_or(configured);
+        if self.sampled_at.is_none_or(|at| at.elapsed() >= wanted) {
+            self.refresh(connected)?;
+        }
+        admit(client, connected, self.line.as_bytes(), limit);
+        Ok(())
+    }
+    fn release(&mut self) {
+        if self.collector.is_some() {
+            tracing::debug!(event.name = "systeminfo.collector.released");
+        }
+        self.collector = None;
+        self.sampled_at = None;
+        self.line.clear();
     }
 }
-
-fn admit(mut client: Client, connected: &mut Vec<Client>, latest: &[u8]) {
-    if connected.len() < MAX_CLIENTS && client.stream.write_all(latest).is_ok() {
-        connected.push(client);
-    }
-}
-
-fn interval() -> Duration {
-    std::env::var("RLDYOUR_SYSINFO_INTERVAL")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .and_then(duration)
-        .unwrap_or(DEFAULT_INTERVAL)
-}
-
-fn duration(seconds: u64) -> Option<Duration> {
-    match seconds {
-        0 => Some(REALTIME_INTERVAL),
-        1..=MAX_INTERVAL => Some(Duration::from_secs(seconds)),
-        _ => None,
-    }
-}
-
 struct Client {
     stream: UnixStream,
     requested: Option<Duration>,
 }
-
-fn cadence(clients: &[Client], configured: Duration) -> Duration {
+fn admit(mut client: Client, connected: &mut Vec<Client>, latest: &[u8], limit: usize) {
+    if connected.len() < limit && client.stream.write_all(latest).is_ok() {
+        connected.push(client);
+    }
+}
+fn requested_cadence(clients: &[Client], configured: Duration) -> Duration {
     clients
         .iter()
         .filter_map(|client| client.requested)
         .min()
         .unwrap_or(configured)
 }
-
-fn handshake(mut stream: &UnixStream) -> io::Result<Option<Duration>> {
-    let deadline = Instant::now() + HANDSHAKE_TIMEOUT;
-    let mut bytes = [0u8; MAX_HANDSHAKE];
+fn handshake(mut stream: &UnixStream, config: Transport) -> io::Result<Option<Duration>> {
+    let deadline = Instant::now() + Duration::from_millis(config.handshake_timeout_ms);
+    let mut bytes = [0u8; nddev_systeminfo::protocol::MAX_FRAME_BYTES];
     let mut used = 0;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -170,7 +165,7 @@ fn handshake(mut stream: &UnixStream) -> io::Result<Option<Duration>> {
             return Ok(None);
         }
         stream.set_read_timeout(Some(remaining))?;
-        match stream.read(&mut bytes[used..]) {
+        match stream.read(&mut bytes[used..config.handshake_bytes]) {
             Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
             Ok(count) => {
                 used += count;
@@ -179,10 +174,10 @@ fn handshake(mut stream: &UnixStream) -> io::Result<Option<Duration>> {
                         .ok()
                         .and_then(parse_interval));
                 }
-                if used == MAX_HANDSHAKE {
+                if used == config.handshake_bytes {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
-                        "handshake exceeds 256 bytes",
+                        "handshake exceeds configured limit",
                     ));
                 }
             }
@@ -199,7 +194,6 @@ fn handshake(mut stream: &UnixStream) -> io::Result<Option<Duration>> {
         }
     }
 }
-
 fn parse_interval(line: &str) -> Option<Duration> {
     let object = line.trim().strip_prefix('{')?.strip_suffix('}')?;
     let (key, value) = object.split_once(':')?;
@@ -211,55 +205,39 @@ fn parse_interval(line: &str) -> Option<Duration> {
     {
         return None;
     }
-    duration(value.parse().ok()?)
+    cadence(value.parse().ok()?)
 }
-
-fn accept_loop(listener: UnixListener) -> io::Result<Receiver<Client>> {
-    let (sender, receiver) = mpsc::sync_channel(MAX_CLIENTS);
-    std::thread::Builder::new()
-        .name("accept".into())
-        .stack_size(ACCEPT_STACK)
-        .spawn(move || {
-            loop {
-                let stream = match listener.accept() {
-                    Ok((stream, _)) => stream,
-                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                    Err(error) => {
-                        eprintln!("rldyour-sysinfod: accept: {error}");
-                        return;
-                    }
-                };
-                let Ok(requested) = handshake(&stream) else {
-                    continue;
-                };
-                // A partial frame or WouldBlock disconnects this peer; other peers
-                // never inherit its write delay, even when the socket buffer fills.
-                if stream.set_nonblocking(true).is_err() {
-                    continue;
-                }
-                match sender.try_send(Client { stream, requested }) {
-                    Ok(()) | Err(TrySendError::Full(_)) => {}
-                    Err(TrySendError::Disconnected(_)) => return,
-                }
-            }
-        })?;
+fn accept_loop(listener: UnixListener, config: Transport) -> io::Result<Receiver<Client>> {
+    let (sender, receiver) = mpsc::sync_channel(config.max_clients);
+    std::thread::Builder::new().name("accept".into()).stack_size(config.accept_stack_bytes).spawn(move || loop {
+        let stream = match listener.accept() {
+            Ok((stream, _)) => stream,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => { tracing::error!(event.name = "systeminfo.accept.failed", error.type = "io", error = %error); return; },
+        };
+        let Ok(requested) = handshake(&stream, config) else { continue; };
+        if stream.set_nonblocking(true).is_err() { continue; }
+        match sender.try_send(Client { stream, requested }) { Ok(()) | Err(TrySendError::Full(_)) => {}, Err(TrySendError::Disconnected(_)) => return }
+    })?;
     Ok(receiver)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    fn config() -> Config {
+        Config::parse(nddev_systeminfo::config::DEFAULT_TOML).unwrap()
+    }
     #[test]
-    fn requests_are_bounded_whole_seconds_in_a_complete_object() {
-        for (line, expected) in [
-            (r#"{"interval":0}"#, Some(REALTIME_INTERVAL)),
-            (r#"{ "interval" : 12 }"#, Some(Duration::from_secs(12))),
-            (r#"{"interval":60}"#, Some(Duration::from_secs(60))),
+    fn cadence_accepts_only_bounded_whole_seconds() {
+        for (text, seconds) in [
+            (r#"{"interval":0}"#, 0),
+            (r#"{ "interval" : 12 }"#, 12),
+            (r#"{"interval":60}"#, 60),
         ] {
-            assert_eq!(parse_interval(line), expected);
+            assert_eq!(parse_interval(text), cadence(seconds));
         }
-        for line in [
+        for text in [
             "",
             "hello",
             r#"{"interval":61}"#,
@@ -269,55 +247,42 @@ mod tests {
             r#"{"interval":00}"#,
             r#"{"interval":"5"}"#,
             r#"garbage "interval":0"#,
-            r#"{"interval":3, "other":4}"#,
+            r#"{"interval":3,"other":4}"#,
         ] {
-            assert_eq!(parse_interval(line), None, "{line}");
+            assert_eq!(parse_interval(text), None, "{text}");
         }
     }
-
     #[test]
-    fn fastest_client_wins() {
-        let make = |seconds| Client {
-            stream: UnixStream::pair().unwrap().0,
-            requested: duration(seconds),
-        };
-        assert_eq!(cadence(&[], DEFAULT_INTERVAL), DEFAULT_INTERVAL);
-        assert_eq!(
-            cadence(&[make(0), make(10)], DEFAULT_INTERVAL),
-            REALTIME_INTERVAL
-        );
-        assert_eq!(
-            cadence(&[make(10), make(61)], DEFAULT_INTERVAL),
-            Duration::from_secs(10)
-        );
-    }
-
-    #[test]
-    fn oversized_handshake_is_rejected_without_growing_a_buffer() {
+    fn oversized_handshake_is_rejected_without_allocating() {
         let (server, mut peer) = UnixStream::pair().unwrap();
-        peer.write_all(&[b'x'; MAX_HANDSHAKE]).unwrap();
+        let config = config().transport;
+        peer.write_all(&vec![b'x'; config.handshake_bytes]).unwrap();
         assert_eq!(
-            handshake(&server).unwrap_err().kind(),
+            handshake(&server, config).unwrap_err().kind(),
             io::ErrorKind::InvalidData
         );
     }
-
     #[test]
-    fn client_limit_is_enforced() {
-        let mut clients = Vec::new();
+    fn client_limit_and_fastest_cadence_are_enforced() {
+        let mut connected = Vec::new();
         let mut peers = Vec::new();
-        for _ in 0..MAX_CLIENTS + 1 {
+        for seconds in [10, 2, 0] {
             let (stream, peer) = UnixStream::pair().unwrap();
             peers.push(peer);
             admit(
                 Client {
                     stream,
-                    requested: None,
+                    requested: cadence(seconds),
                 },
-                &mut clients,
-                b"sample\n",
+                &mut connected,
+                b"frame\n",
+                2,
             );
         }
-        assert_eq!(clients.len(), MAX_CLIENTS);
+        assert_eq!(connected.len(), 2);
+        assert_eq!(
+            requested_cadence(&connected, config().interval()),
+            Duration::from_secs(2)
+        );
     }
 }

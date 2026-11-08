@@ -13,7 +13,7 @@ set -euo pipefail
 binary="$(realpath "$1")"
 outdir="$2"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "${root}/daemon/Cargo.toml" | head -1)"
+version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "${root}/Cargo.toml" | head -1)"
 
 scratch="$(mktemp -d)"
 trap 'rm -rf "${scratch}"' EXIT

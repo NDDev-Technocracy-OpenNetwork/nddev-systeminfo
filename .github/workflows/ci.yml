@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
   pull_request:
-  # Advisory drift and action rot happen without pushes too.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,6 +14,13 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  check:
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@25f896daa96aeaf14e314e967b1a74614b5c1052
+    permissions:
+      contents: read
+    with:
+      setup: true
+
   lint:
     name: Lint and metadata
     runs-on: ubuntu-24.04
@@ -22,12 +29,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: cargo fmt --check --manifest-path daemon/Cargo.toml
       - run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y shellcheck init-system-helpers
       - run: shellcheck scripts/*.sh install.sh uninstall.sh install-macos.sh uninstall-macos.sh packaging/deb/postinst packaging/deb/prerm packaging/deb/postrm
-      - run: ./scripts/check-version.sh
       - run: ./scripts/check-deb-lifecycle.sh
 
   daemon:
@@ -38,9 +43,6 @@ jobs:
         os: [ubuntu-24.04, macos-26, macos-26-intel, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: daemon
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,54 +52,13 @@ jobs:
       - uses: NDDev-Technocracy-Standarts/std-0004-ci-cd-workflows/.github/actions/hosted-cache@c192c6adcf22088abf456635de614d42e8fa3f8d # nddev-cicd-v0.6.20
         with:
           ecosystems: cargo
-          working-directory: daemon
-      - run: cargo clippy --locked --all-targets --no-default-features -- -D warnings
-      - run: cargo test --locked --no-default-features
-      - run: cargo build --release --locked --no-default-features
-
-  msrv:
-    name: Minimum Rust version
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install 1.95 --profile minimal
-      - run: cargo +1.95 check --locked --manifest-path daemon/Cargo.toml
-
-  linux-nvidia:
-    name: Linux with NVIDIA support
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: daemon
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
-      - run: cargo test --all-features --locked
-      - run: cargo build --release --all-features --locked
-
-  windows-nvidia:
-    name: Windows with NVIDIA support
-    runs-on: windows-2025
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: daemon
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
-      - run: cargo test --all-features --locked
-      - run: cargo build --release --all-features --locked
-      - name: Check installer syntax
+      - run: cargo run --locked --package systeminfo-tools -- setup
+      - run: ./.tools/bin/systeminfo-tools${{ runner.os == 'Windows' && '.exe' || '' }} test
+      - run: cargo clippy --locked --package nddev-systeminfo --all-targets --no-default-features -- -D warnings
+      - run: cargo build --release --locked --workspace --all-features
+      - name: Check Windows installer syntax
+        if: runner.os == 'Windows'
         shell: pwsh
-        working-directory: .
         run: |
           foreach ($file in "install-windows.ps1", "uninstall-windows.ps1", "scripts/e2e-sample.ps1") {
             $errors = $null
@@ -128,12 +89,12 @@ jobs:
           version: '0.12.17'
           # Only one pinned pytest wheel is fetched; a cache would cost more than it saves.
           enable-cache: 'false'
-      - run: cargo build --release --locked --manifest-path daemon/Cargo.toml
+      - run: cargo build --release --locked --package nddev-systeminfo
       - name: Serve and read the protocol (Linux)
         if: runner.os == 'Linux'
         timeout-minutes: 3
         run: |
-          ./daemon/target/release/rldyour-sysinfod &
+          ./target/release/nddev-systeminfod &
           daemon_pid=$!
           sleep 1
           PYTHONPATH=python/src uv run --no-project python scripts/e2e-sample.py
@@ -149,7 +110,7 @@ jobs:
         if: runner.os == 'macOS'
         timeout-minutes: 3
         run: |
-          ./daemon/target/release/rldyour-sysinfod &
+          ./target/release/nddev-systeminfod &
           daemon_pid=$!
           sleep 1
           PYTHONPATH=python/src uv run --no-project python scripts/e2e-sample.py
@@ -162,7 +123,7 @@ jobs:
         timeout-minutes: 3
         shell: pwsh
         run: |
-          $daemon = Start-Process -PassThru -WindowStyle Hidden daemon/target/release/rldyour-sysinfod.exe
+          $daemon = Start-Process -PassThru -WindowStyle Hidden target/release/nddev-systeminfod.exe
           try {
             Start-Sleep -Seconds 1
             ./scripts/e2e-sample.ps1
@@ -175,7 +136,7 @@ jobs:
         run: |
           python3 - <<'PY_CRASH'
           import json, pathlib
-          for path in (pathlib.Path.home() / 'Library/Logs/DiagnosticReports').glob('rldyour-sysinfod*.ips'):
+          for path in (pathlib.Path.home() / 'Library/Logs/DiagnosticReports').glob('nddev-systeminfod*.ips'):
               lines = path.read_text().split('\n', 1)
               try:
                   report = json.loads(lines[1])
@@ -254,8 +215,8 @@ jobs:
           persist-credentials: false
       - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y dpkg-dev
       - run: |
-          cargo build --release --locked --manifest-path daemon/Cargo.toml
-          ./scripts/build-deb.sh daemon/target/release/rldyour-sysinfod /tmp/sysinfo-deb
+          cargo build --release --locked --package nddev-systeminfo
+          ./scripts/build-deb.sh target/release/nddev-systeminfod /tmp/sysinfo-deb
           dpkg-deb -x /tmp/sysinfo-deb/*.deb /tmp/sysinfo-unpack
           test "$(stat -c '%a' /tmp/sysinfo-unpack)" = 755
           grep -qx 'ExecStart=/usr/bin/rldyour-sysinfod' /tmp/sysinfo-unpack/usr/lib/systemd/user/rldyour-sysinfod.service
@@ -263,18 +224,6 @@ jobs:
           /tmp/sysinfo-unpack/usr/bin/rldyour-sysinfod --version
           sudo dpkg -i /tmp/sysinfo-deb/*.deb
           systemctl --global is-enabled rldyour-sysinfod.socket
-
-  audit:
-    name: Dependency advisories
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: cargo install cargo-audit --version 0.22.1 --locked
-      - run: cargo audit
-        working-directory: daemon
 
   workflows:
     runs-on: ubuntu-24.04

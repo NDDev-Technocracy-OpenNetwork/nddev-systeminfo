@@ -8,7 +8,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-daemon="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "${root}/daemon/Cargo.toml" | head -1)"
+daemon="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "${root}/Cargo.toml" | head -1)"
 pypi="$(sed -n 's/^version = "\([^"]*\)"/\1/p' "${root}/python/pyproject.toml" | head -1)"
 client="$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' "${root}/python/src/rldyour_sysinfo/__init__.py" | head -1)"
 

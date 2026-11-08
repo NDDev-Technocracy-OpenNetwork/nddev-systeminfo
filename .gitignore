@@ -1,3 +1,5 @@
+/.tools/
+/target/
 /daemon/target/
 /extension/schemas/gschemas.compiled
 /python/dist/

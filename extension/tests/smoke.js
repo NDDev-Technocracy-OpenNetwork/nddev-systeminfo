@@ -1,5 +1,4 @@
 /* rldyour-sysinfo — smoke test
- * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * Exercises the two modules that run outside GNOME Shell: value formatting,
  * and the socket client against a live daemon. Run it from this directory:
