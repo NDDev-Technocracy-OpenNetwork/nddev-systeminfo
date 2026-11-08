@@ -24,7 +24,12 @@ pub(super) fn build(root: &Path, version: &str) -> Result {
     );
     let mut package = Package::create(
         PackageType::Installer,
-        fs::File::create(root.join("maintenance.msi"))?,
+        fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(root.join("maintenance.msi"))?,
     )?;
     let info = package.summary_info_mut();
     info.set_title("NDDev Systeminfo maintenance");
@@ -203,4 +208,35 @@ pub(super) fn build(root: &Path, version: &str) -> Result {
     }
     package.flush()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+    struct Directory(std::path::PathBuf);
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    #[test]
+    fn maintenance_embeds_the_cleanup_bytes_in_a_readable_msi() {
+        let root =
+            Directory(std::env::temp_dir().join(format!("systeminfo-msi-{}", std::process::id())));
+        fs::create_dir_all(root.0.join("bin")).unwrap();
+        let executable = b"MZ-cleanup-payload";
+        fs::write(root.0.join("bin/nddev-systeminfo.exe"), executable).unwrap();
+        build(&root.0, "0.3.2").unwrap();
+        let mut package =
+            Package::open(fs::File::open(root.0.join("maintenance.msi")).unwrap()).unwrap();
+        let mut payload = Vec::new();
+        package
+            .read_stream("Binary.Cleanup")
+            .unwrap()
+            .read_to_end(&mut payload)
+            .unwrap();
+        assert_eq!(payload, executable);
+        assert!(package.has_table("InstallExecuteSequence"));
+    }
 }

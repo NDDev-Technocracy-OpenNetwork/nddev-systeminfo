@@ -6,6 +6,11 @@ yanked = "deny"
 version = 2
 confidence-threshold = 0.93
 allow = ["MIT", "Apache-2.0", "ISC", "Zlib", "Unicode-3.0"]
+exceptions = [
+  # MSI's build-only encoding tables retain permissive BSD attribution in
+  # addition to their MIT/Apache license. No encoding library enters the product.
+  { name = "encoding_rs", version = "=0.8.44", allow = ["BSD-3-Clause"] },
+]
 
 [bans]
 multiple-versions = "warn"
