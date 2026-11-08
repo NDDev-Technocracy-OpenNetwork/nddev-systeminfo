@@ -274,7 +274,7 @@ impl Tray {
                 OPEN => {
                     on_event(Event::ConfigurationChanged, &self.proxy);
                     self.refresh()?;
-                    let anchor = (message.lparam == 1).then(|| Point {
+                    let anchor = (message.lparam == 1).then_some(Point {
                         x: message.wparam as u16 as i16 as i32,
                         y: (message.wparam >> 16) as u16 as i16 as i32,
                     });
