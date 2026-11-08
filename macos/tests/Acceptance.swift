@@ -97,6 +97,7 @@ private func processResources() -> [String: Int] {
     // RSS is recorded separately from Linux PSS/Windows private bytes. Only
     // this application and its owned Systeminfo helpers are inspected.
     let own = Int(output("/bin/ps", ["-o", "rss=", "-p", String(getpid())])) ?? 0
+    precondition(own > 0, "native UI RSS must be observable")
     let children = output("/usr/bin/pgrep", ["-P", String(getpid()), "-f", "nddev-systeminfo"]).split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
     let childRSS = children.reduce(0) { $0 + (Int(output("/bin/ps", ["-o", "rss=", "-p", String($1)])) ?? 0) }
     return ["ui_rss_kib":own,"child_rss_kib":childRSS,"children":children.count]

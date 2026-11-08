@@ -63,8 +63,9 @@ pub fn process_resources() -> io::Result<ProcessResources> {
     unsafe {
         let process = -1_isize as Handle;
         let mut counters: MemoryCounters = std::mem::zeroed();
-        counters.size = size_of::<MemoryCounters>() as u32;
-        if GetProcessMemoryInfo(process, &mut counters, counters.size) == 0 {
+        let size = size_of::<MemoryCounters>() as u32;
+        counters.size = size;
+        if GetProcessMemoryInfo(process, &mut counters, size) == 0 {
             return Err(io::Error::last_os_error());
         }
         Ok(ProcessResources {
