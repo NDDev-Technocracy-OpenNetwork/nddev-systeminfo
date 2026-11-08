@@ -166,6 +166,23 @@ jobs:
           swiftc -swift-version 6 -parse-as-library -warnings-as-errors macos/Sample.swift macos/Presentation.swift macos/tests/ProtocolTests.swift -o /tmp/sysinfo-protocol-tests
           /tmp/sysinfo-protocol-tests extension/resources/ui.json
       - run: plutil -lint macos/*.plist
+      - name: Real AppKit acceptance
+        timeout-minutes: 4
+        run: |
+          cargo build --release --locked --package nddev-systeminfo
+          swiftc -target "$(uname -m)-apple-macosx12.0" -swift-version 6 -parse-as-library -warnings-as-errors -D UI_ACCEPTANCE -framework AppKit macos/*.swift macos/tests/Acceptance.swift -o /tmp/sysinfo-native-acceptance
+          ./target/release/nddev-systeminfod &
+          provider=$!
+          trap 'kill "$provider" 2>/dev/null || true' EXIT
+          config="$RUNNER_TEMP/systeminfo-ui.toml"
+          ./target/release/nddev-systeminfo --config "$config" config init
+          /tmp/sysinfo-native-acceptance --resources extension/resources/ui.json --cli "$PWD/target/release/nddev-systeminfo" --config "$config" --provider-pid "$provider" --artifacts "$RUNNER_TEMP/systeminfo-ui"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: appkit-${{ matrix.os }}
+          path: ${{ runner.temp }}/systeminfo-ui
+          if-no-files-found: error
 
   extension:
     name: GNOME extension

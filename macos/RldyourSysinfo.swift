@@ -49,7 +49,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         localeObserver = NotificationCenter.default.addObserver(
             forName: NSLocale.currentLocaleDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in Task { @MainActor in self?.rebuildMenu() } }
-        Task { await initializeConfig() }
+        Task {
+            await initializeConfig()
+            #if UI_ACCEPTANCE
+            do { try await runNativeAcceptance(self) }
+            catch { fputs("native acceptance failed: \(error)\n", stderr); exit(1) }
+            #endif
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -270,6 +276,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     @objc private func reconnect() { restartClient() }
     @objc private func quitApp() { NSApplication.shared.terminate(nil) }
+    #if UI_ACCEPTANCE
+    var acceptanceMenu: NSMenu { menu }
+    var acceptanceConfig: AppConfig? { config }
+    var acceptanceHasSample: Bool { sample != nil }
+    var acceptanceCLI: ConfigCLI { cli }
+    func acceptanceReload() async { await reload() }
+    #endif
 }
 
 private func option(_ name: String) -> String? {
