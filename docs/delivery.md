@@ -1,0 +1,42 @@
+# Qualified distribution
+
+`release.toml` owns the original GitHub repository ID, qualification workflow
+identity and required artifact set. CI builds Linux x64, macOS ARM/Intel and
+Windows x64 native archives, both Debian packages and the Python SDK. Actual
+native installation, UI and provider checks run before their jobs succeed.
+
+A successful push to `dev` calls `release.yml`. Its read-only resolver accepts
+only this repository's exact dev-push CI source. The delivery utility checks all
+qualification jobs and downloads each original CI archive, validates its ZIP
+digest and streams bounded, unique filenames to owned files. It produces
+`provenance.json` and `SHA256SUMS`. Product binaries and packages are never
+rebuilt during promotion.
+
+Only after qualification does delivery fast-forward `main` to that exact
+commit, create an annotated version tag and upload a draft release. Each upload
+is downloaded again and compared by SHA-256 before publication. Existing tags
+never move. A published asset with different bytes stops recovery. A partial
+draft can resume with the same version and original CI run.
+
+The release then dispatches signed APT publication on `main`, as required by
+the Pages environment, and waits for its result. Before signing, APT downloads
+the original Debian CI artifact again and compares both packages with the
+release bytes. The signing key is available only to the signing step. The
+public key and existing repository label remain stable across the product
+rename; `rldyour-sysinfo` becomes a transitional Debian package.
+
+For repair, dispatch **Release** with the original qualification run ID. It
+rechecks qualification and observed state. Recovery of an older immutable
+release does not rewind `main` or replace the latest release. If an original
+CI artifact has expired, recovery fails; a new version needs fresh qualification.
+
+The optional **Publish Python registry** workflow takes an existing stable tag,
+downloads its SDK distribution and verifies it against the original CI bytes.
+It uses PyPI trusted publishing through the `pypi` environment. The publisher
+registration belongs to the repository's registry configuration; GitHub SDK
+downloads do not depend on that registration. The Rust API is consumed from a
+pinned Git revision; the product is distributed as native packages.
+
+macOS bundles currently use an ad-hoc signature. Developer ID signing and
+notarization require a separately configured product signing identity. No
+credentials from another product are used.

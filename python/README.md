@@ -1,7 +1,8 @@
-# rldyour-sysinfo Python client
+# NDDev Systeminfo Python client
 
 Typed, dependency-free client for the local JSON protocol exposed by the
-`rldyour-sysinfod` Rust daemon.
+`nddev-systeminfod` Rust provider. The import and package identity remain
+`rldyour_sysinfo` / `rldyour-sysinfo` for existing consumers.
 
 ```python
 from rldyour_sysinfo import samples
@@ -14,8 +15,9 @@ for sample in samples(interval=2):
 tick. The command `rldyour-sysinfo --once` prints one sample as JSON.
 
 Linux and macOS. CPython on Windows builds without `socket.AF_UNIX`, so this
-client cannot reach the daemon there — drive the same protocol through .NET's
-`UnixDomainSocketEndPoint` instead (see `scripts/e2e-sample.ps1`).
+client cannot reach the provider there. Use the native Rust client or
+`nddev-systeminfo sample` on Windows.
 
 Install the daemon from the
-[main repository](https://github.com/NDDev-OpenNetwork/rldyour-sysinfo).
+[main repository](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo).
+Qualified wheels and source distributions accompany its GitHub releases.

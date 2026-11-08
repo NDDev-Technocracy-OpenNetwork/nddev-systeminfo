@@ -23,6 +23,11 @@ fn tree(source: &Path, destination: &Path) -> Result {
     Ok(())
 }
 pub(super) fn package() -> Result<PathBuf> {
+    if cfg!(target_os = "windows") && !cfg!(target_feature = "crt-static") {
+        return Err(
+            "Windows distribution requires the repository's static C runtime configuration".into(),
+        );
+    }
     let binaries = crate::build_binaries(true)?;
     let version = crate::version()?;
     let name = format!(
@@ -138,7 +143,7 @@ pub(super) fn package() -> Result<PathBuf> {
         )?;
     }
     fs::write(
-        archive.with_extension(format!("{extension}.sha256")),
+        archive.with_file_name(format!("{name}.{extension}.sha256")),
         format!(
             "{}  {}\n",
             digest(&archive)?,

@@ -3,6 +3,7 @@ use serde::Deserialize;
 mod clients;
 #[cfg(target_os = "linux")]
 mod debian;
+mod delivery;
 mod install_test;
 mod linux_ui;
 mod packaging;
@@ -778,6 +779,14 @@ fn run() -> Result {
         Some("deb-test") => debian::test(),
         Some("install-test") => install_test::run(),
         Some("python-live") => clients::python(),
+        Some("publish") => delivery::publish(),
+        Some("verify-deb") => delivery::verify_deb(),
+        Some("verify-python") => delivery::verify_python(),
+        Some("prepare-delivery") => {
+            fs::create_dir_all(".tools/bin")?;
+            fs::copy(std::env::current_exe()?, binary("systeminfo-delivery"))?;
+            Ok(())
+        }
         _ => Err("usage: systeminfo-tools <setup|generate|check|test>".into()),
     }
 }

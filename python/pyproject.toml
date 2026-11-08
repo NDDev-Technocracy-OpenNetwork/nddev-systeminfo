@@ -9,7 +9,7 @@ classifiers = [
     "Operating System :: Microsoft :: Windows :: Windows 10",
     "Operating System :: POSIX :: Linux",
 ]
-description = "Python client for the rldyour-sysinfo live metrics daemon"
+description = "Dependency-free Python client for NDDev Systeminfo local metrics"
 license = "Apache-2.0"
 name = "rldyour-sysinfo"
 readme = "README.md"

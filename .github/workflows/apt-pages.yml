@@ -1,4 +1,5 @@
 name: Publish APT repository
+run-name: APT ${{ inputs.tag }}
 
 on:
   workflow_dispatch:
@@ -45,6 +46,7 @@ jobs:
           set -euo pipefail
           [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
           gh release view "${RELEASE_TAG}" --json isDraft,isPrerelease --jq '(.isDraft or .isPrerelease)' | grep -qx false
+          test "$(gh api "repos/${GH_REPO}/releases/latest" --jq .tag_name)" = "${RELEASE_TAG}"
           printf 'tag=%s\n' "${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -61,10 +63,17 @@ jobs:
             test "$(gh api "repos/${GH_REPO}/commits/${RELEASE_TAG}" --jq .sha)" = "${EXPECTED_COMMIT}"
           fi
           mkdir -p released
-          gh release download "${RELEASE_TAG}" --pattern '*_amd64.deb' --pattern SHA256SUMS --dir released
+          gh release download "${RELEASE_TAG}" --pattern '*.deb' --pattern SHA256SUMS --dir released
           (cd released && sha256sum --check --ignore-missing SHA256SUMS)
-          test "$(find released -name '*.deb' | wc -l)" -eq 1
-          test "$(dpkg-deb --field released/*.deb Version)" = "${RELEASE_TAG#v}"
+          test "$(find released -name '*.deb' | wc -l)" -eq 2
+          for package in released/*.deb; do
+            test "$(dpkg-deb --field "$package" Version)" = "${RELEASE_TAG#v}"
+          done
+      - name: Verify released Debian bytes against the original successful CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: cargo run --locked --package systeminfo-tools -- verify-deb
       - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y apt-utils dpkg-dev
       - name: Build signed repository
         env:
@@ -72,8 +81,8 @@ jobs:
         run: |
           set -euo pipefail
           umask 022
-          mkdir -p site/apt/pool/main/r/rldyour-sysinfo site/apt/dists/stable/main/binary-amd64
-          install -m644 released/*.deb site/apt/pool/main/r/rldyour-sysinfo/
+          mkdir -p site/apt/pool/main/n/nddev-systeminfo site/apt/dists/stable/main/binary-amd64
+          install -m644 released/*.deb site/apt/pool/main/n/nddev-systeminfo/
           cd site/apt
           dpkg-scanpackages --arch amd64 pool > dists/stable/main/binary-amd64/Packages
           gzip -9 -k dists/stable/main/binary-amd64/Packages
@@ -98,9 +107,10 @@ jobs:
           echo "deb [arch=amd64 signed-by=/usr/share/keyrings/rldyour-sysinfo.asc] file:${PWD}/site/apt stable main" | sudo tee /etc/apt/sources.list.d/rldyour-sysinfo.list
           sudo apt-get update
           sudo apt-get install -y rldyour-sysinfo
-          test -x /usr/bin/rldyour-sysinfod
-          /usr/bin/rldyour-sysinfod --version
-          grep -qx 'ExecStart=/usr/bin/rldyour-sysinfod' /usr/lib/systemd/user/rldyour-sysinfod.service
+          test -x /usr/bin/nddev-systeminfod
+          /usr/bin/nddev-systeminfod --version
+          /usr/bin/nddev-systeminfo --version
+          grep -qx 'ExecStart=/usr/bin/nddev-systeminfod' /usr/lib/systemd/user/rldyour-sysinfod.service
           # The maintainer scripts must have enabled the socket for every
           # login session — the package is useless until it exists.
           systemctl --global is-enabled rldyour-sysinfod.socket

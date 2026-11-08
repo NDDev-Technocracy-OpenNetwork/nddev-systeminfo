@@ -1,0 +1,17 @@
+format = 1
+
+[github]
+repository_id = 1333577156
+workflow_id = 334161800
+development_branch = "dev"
+stable_branch = "main"
+
+[artifacts]
+required = [
+  "native-ubuntu-24.04",
+  "native-macos-26",
+  "native-macos-26-intel",
+  "native-windows-2025",
+  "debian-amd64",
+  "python-sdk",
+]
