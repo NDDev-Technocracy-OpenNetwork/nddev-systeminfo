@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.4 — 2026-11-08
+
+- Admit Debian package restarts independently for each active user manager,
+  preserving masked and disabled secondary accounts and service policy.
+- Qualify actual enabled and masked systemd user managers in Debian CI.
+
 ## 0.3.3 — 2026-11-08
 
 - Publish the independent NDDev Systeminfo product in OpenNetwork, preserving

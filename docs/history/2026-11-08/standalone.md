@@ -46,3 +46,10 @@ The corrected requests were exercised against an actual CI archive and the
 historical 0.3.1 Linux release asset; both matched GitHub's recorded SHA-256.
 Ubuntu workspace tests and Clippy, plus build-free source checks, passed for
 the correction before cross-platform qualification.
+
+The first physical Debian rollout exposed a multi-user restart defect in the
+distribution's invoke helper: its admitted unit list persists across user
+managers, so an enabled account can affect a later masked account. Product #53
+scopes restart admission per manager while retaining Debian enablement and
+service policy. The new Debian acceptance uses two actual user managers, with
+one enabled and one masked; 0.3.4 carries this package-only correction.

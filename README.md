@@ -134,8 +134,8 @@ A release-build comparison on one Linux host used separate executable copies,
 realtime demand, ten seconds of active measurement and ten seconds of idle CPU
 measurement after resource release:
 
-These measurements use the 0.3.2 candidate; 0.3.3 fixes the distribution utility
-and keeps the same collector and resource policy.
+These measurements use the 0.3.2 candidate; 0.3.3 and 0.3.4 correct distribution
+and package lifecycle while keeping the same collector and resource policy.
 
 | Provider profile | Active PSS | PSS after release | Threads |
 | --- | --- | --- | --- |

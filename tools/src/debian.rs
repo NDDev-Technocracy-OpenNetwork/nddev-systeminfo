@@ -6,6 +6,7 @@ use std::{
     process::{Command, Stdio},
 };
 const SOCKET: &str = "rldyour-sysinfod.socket";
+mod users;
 
 fn copy(from: &Path, to: &Path, executable: bool) -> Result {
     use std::os::unix::fs::PermissionsExt;
@@ -194,6 +195,7 @@ pub(super) fn test() -> Result {
         return Ok(());
     }
     let version = crate::version()?;
+    let users = users::Users::create()?;
     command(
         "sudo",
         &[
@@ -203,6 +205,7 @@ pub(super) fn test() -> Result {
             &format!("dist/rldyour-sysinfo_{version}_all.deb"),
         ],
     )?;
+    users.verify()?;
     command("systemctl", &["--global", "is-enabled", SOCKET])?;
     command("/usr/bin/nddev-systeminfo", &["--version"])?;
     let portable = crate::packaging::package()?;
@@ -239,6 +242,7 @@ pub(super) fn test() -> Result {
     if Path::new("/usr/bin/nddev-systeminfod").exists() {
         return Err("dpkg purge left the provider".into());
     }
+    users.finish()?;
     println!("PASS: real dpkg install, transition, disabled reinstall, native hooks and purge");
     Ok(())
 }
