@@ -138,6 +138,7 @@ private final class MetricCell: NSButton {
     }
     required init?(coder: NSCoder) { nil }
     func update(_ value: String) {
+        guard reading != value || title.isEmpty else { return }
         reading = value
         title = "\(caption): \(value)"
         setAccessibilityLabel(title)
@@ -440,7 +441,7 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
         chart.setAccessibilityLabel("\(text(view.label).replacingOccurrences(of: "{id}", with: selected?.replacingOccurrences(of: "core:", with: "") ?? "")); \(stats.stringValue)")
         coverage.stringValue = text("history_coverage").replacingOccurrences(of: "{count}", with: String(s.samples))
             .replacingOccurrences(of: "{minutes}", with: String(format: "%.1f", s.coveredMs / 60000))
-        scale.stringValue = "\(format(view.yMax, unit: view.unit))  —  \(format(view.yMin, unit: view.unit))"
+        scale.stringValue = "\(text(view.label).replacingOccurrences(of: "{id}", with: selected?.replacingOccurrences(of: "core:", with: "") ?? "")) · \(format(view.yMax, unit: view.unit))  —  \(format(view.yMin, unit: view.unit))"
         renderCores(view.latest?.detail.cores ?? [])
         renderGPUs(view.latest?.detail)
     }

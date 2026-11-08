@@ -74,16 +74,20 @@ export const Indicator = GObject.registerClass(class Indicator extends PanelMenu
                 const format = series.unit === 'percent' ? 'percent' : series.unit === 'celsius' ? 'celsius' : 'rate';
                 const content = new St.BoxLayout(VERTICAL_LAYOUT);
                 const title = new St.Label({text: settings.text(spec.label)});
-                const value = this._value(`${spec.metric}:${format}`, 'systeminfo-value');
+                const value = spec.label === 'history' ? new St.Label({text: settings.text('range_60')}) : this._value(`${spec.metric}:${format}`, 'systeminfo-value');
                 content.add_child(title); content.add_child(value);
                 const button = new St.Button({child: content, can_focus: true, reactive: true, x_expand: true,
                     accessible_name: `${settings.text(spec.label)} · ${settings.text('details')}`});
                 button.connect('clicked', () => this._openAnalysis(spec.metric));
                 button.connect('key-focus-in', () => this._reveal(row));
+                button.connect('key-focus-in', () => { button.style = `${button._baseStyle} border-color: ${this._focusColor};`; });
+                button.connect('key-focus-out', () => { button.style = button._baseStyle; });
                 row.add_child(button); this._cellItems.push({button, content, title, value});
             }
             this.menu.addMenuItem(row);
         }
+        const readings = new PopupMenu.PopupSubMenuMenuItem(settings.text('readings'));
+        this.menu.addMenuItem(readings);
         for (const [key, field] of ROWS) {
             const item = new PopupMenu.PopupBaseMenuItem({can_focus: true});
             const title = new St.Label({text: settings.text(key), xExpand: true});
@@ -92,7 +96,7 @@ export const Indicator = GObject.registerClass(class Indicator extends PanelMenu
             item.add_child(title);
             const value = this._value(field, 'systeminfo-value'); item.add_child(value);
             item.connect('activate', () => this._openAnalysis(field.split(':')[0]));
-            this._rowItems.push({item, key, value}); this.menu.addMenuItem(item);
+            this._rowItems.push({item, key, value}); readings.menu.addMenuItem(item);
         }
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         const copy = new PopupMenu.PopupMenuItem(settings.text('copy_report'));
@@ -121,6 +125,7 @@ export const Indicator = GObject.registerClass(class Indicator extends PanelMenu
         const theme = `${dark ? 'dark' : 'light'}${contrast ? '-contrast' : ''}`;
         const c = settings.resource.themes[theme];
         const m = settings.resource.metrics[settings.config.display.density];
+        this._focusColor = c.focus;
         this._panel.style = `spacing: ${m.gap}px;`;
         for (const child of this._panel.get_children()) {
             if (child instanceof St.BoxLayout) child.style = `spacing: ${m.small}px;`;
@@ -130,6 +135,7 @@ export const Indicator = GObject.registerClass(class Indicator extends PanelMenu
         this.menu.box.style = `background-color: ${c.surface}; color: ${c.text}; min-width: ${m.min_width}px;`;
         for (const {button, content, title, value} of this._cellItems) {
             button.style = `background-color: ${c.raised}; color: ${c.text}; border: ${m.border}px solid ${c.border}; border-radius: ${m.radius}px; padding: ${m.row_padding}px; margin: ${m.small}px;`;
+            button._baseStyle = button.style;
             content.style = `spacing: ${m.small}px; min-width: ${m.min_width / 2 - 2 * m.padding}px;`;
             title.style = `font-size: ${settings.resource.typography[settings.locale].label}px; color: ${c.secondary};`;
             value.style = `font-size: ${settings.resource.typography[settings.locale].card}px; font-weight: bold;`;

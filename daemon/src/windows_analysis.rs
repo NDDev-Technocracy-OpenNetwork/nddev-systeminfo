@@ -58,6 +58,7 @@ struct Limits {
 }
 struct State {
     config: Config,
+    catalog: Catalog,
     resource: Resource,
     open: bool,
     paused: bool,
@@ -89,6 +90,7 @@ impl AnalysisUI {
         let mut s = shared.0.lock().unwrap();
         if serde_json::to_vec(&s.config).ok() != serde_json::to_vec(config).ok() {
             s.config = config.clone();
+            s.catalog = Catalog::load(&s.config.display.locale, &[&tray::system_language()]);
             restart(&mut s, &shared.1);
             if s.open {
                 self.proxy.dashboard(Some(model(&s)));
@@ -104,6 +106,7 @@ impl AnalysisUI {
             let shared = Arc::new((
                 Mutex::new(State {
                     config: config.clone(),
+                    catalog: Catalog::load(&config.display.locale, &[&tray::system_language()]),
                     resource,
                     open: false,
                     paused: false,
@@ -344,9 +347,6 @@ fn collect(shared: Shared, proxy: Proxy) {
         }
     }
 }
-fn catalog(s: &State) -> Catalog {
-    Catalog::load(&s.config.display.locale, &[&tray::system_language()])
-}
 fn action(id: u32, text: String, selected: bool) -> Action {
     Action {
         id,
@@ -356,7 +356,7 @@ fn action(id: u32, text: String, selected: bool) -> Action {
     }
 }
 fn choices(s: &State) -> Vec<(String, String)> {
-    let c = catalog(s);
+    let c = &s.catalog;
     let mut choices: Vec<_> = protocol::METRICS
         .iter()
         .map(|m| (m.key.into(), c.text(m.label).into()))
@@ -404,9 +404,9 @@ fn value(value: Option<f64>, unit: &str) -> String {
     }
 }
 fn model(s: &State) -> Model {
-    let c = catalog(s);
+    let c = &s.catalog;
     let display = &s.config.display;
-    let (dark, contrast, _) = tray::appearance();
+    let (dark, contrast, _) = tray::system_appearance();
     let theme = ui::theme(display, dark, contrast);
     let colors = Colors::resolve(theme, Direction::On);
     let rgb = |c: nddev_opennetwork_design_tokens::Color| {

@@ -690,6 +690,13 @@ unsafe extern "system" fn procedure(
             0x0111 => {
                 let id = (wparam & 0xffff) as u32;
                 let notification = (wparam >> 16) as u32;
+                let choice = s
+                    .controls
+                    .iter()
+                    .any(|c| c.id == id && matches!(s.model.rows[c.row], Row::Choice { .. }));
+                if choice && notification != 1 {
+                    return 0;
+                }
                 let id = if notification == 1
                     && s.controls
                         .iter()

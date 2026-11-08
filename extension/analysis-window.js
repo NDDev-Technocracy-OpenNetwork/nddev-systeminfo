@@ -66,6 +66,7 @@ class Dashboard {
         const title = this.label(caption); title.add_css_class('secondary');
         const value = this.label('—'); value.add_css_class('metric-value'); value.set_direction(Gtk.TextDirection.LTR);
         content.append(title); content.append(value); button.set_child(content);
+        button.update_property([Gtk.AccessibleProperty.LABEL], [caption]);
         button.connect('clicked', action);
         return {button, value, caption};
     }
@@ -241,7 +242,7 @@ class Dashboard {
         this.statistics.label = [['current', this.live || this.paused ? s.current : null], ['minimum', s.minimum], ['average', s.average], ['maximum', s.maximum]]
             .map(([key, value]) => `${this.t(key)}: \u2068${this.value(value, v.unit)}\u2069`).join('     ');
         this.coverage.label = this.t('history_coverage').replace('{count}', String(s.samples)).replace('{minutes}', (s.covered_ms / 60000).toFixed(1));
-        this.scale.label = `${this.value(v.y_max, v.unit)} — ${this.value(v.y_min, v.unit)}`;
+        this.scale.label = `${this.t(v.label).replace('{id}', this.metric.slice(5))} · ${this.value(v.y_max, v.unit)} — ${this.value(v.y_min, v.unit)}`;
         this.chart.update_property([Gtk.AccessibleProperty.LABEL], [`${this.t(v.label).replace('{id}', this.metric.slice(5))}. ${this.statistics.label}`]);
         this.chart.queue_draw(); this.renderCores(); this.renderGPUs();
     }
