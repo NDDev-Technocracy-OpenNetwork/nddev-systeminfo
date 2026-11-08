@@ -26,7 +26,9 @@ export default class SysinfoPreferences extends ExtensionPreferences {
         const darkId = style.connect('notify::dark', updateStyle);
         const contrastId = style.connect('notify::high-contrast', updateStyle);
         const save = (key, value) => {
-            void settings.set(key, value).catch(() => window.add_toast(new Adw.Toast({title: settings.text('error')})));
+            void settings.set(key, value)
+                .then(message => window.add_toast(new Adw.Toast({title: settings.text(message)})))
+                .catch(() => window.add_toast(new Adw.Toast({title: settings.text('error')})));
         };
         const combo = (group, label, options, selected, changed) => {
             const row = new Adw.ComboRow({title: settings.text(label)});
@@ -54,7 +56,7 @@ export default class SysinfoPreferences extends ExtensionPreferences {
             brand.add(heading); page.add(brand);
             if (!settings.ready) {
                 const state = new Adw.PreferencesGroup();
-                state.add(new Adw.ActionRow({title: settings.text(settings.error ? 'error' : 'loading'), subtitle: settings.error ?? ''}));
+                state.add(new Adw.ActionRow({title: settings.text(settings.error ? 'error' : 'loading'), subtitle: settings.error ? settings.text('provider_help') : ''}));
                 page.add(state); window.add(page); return;
             }
             const reading = new Adw.PreferencesGroup({title: settings.text('readings'), description: settings.text('interval_description')});
@@ -64,7 +66,6 @@ export default class SysinfoPreferences extends ExtensionPreferences {
             const gpu = new Adw.SwitchRow({title: settings.text('collect_gpu'), subtitle: settings.text('gpu_description'), active: c.sampling.gpu});
             gpu.connect('notify::active', () => { if (gpu.active !== c.sampling.gpu) save('sampling.gpu', gpu.active); });
             reading.add(gpu);
-            reading.add(new Adw.ActionRow({title: settings.text('restart_provider')}));
             page.add(reading);
             const panel = new Adw.PreferencesGroup({title: settings.text('panel')});
             for (const key of ['show_cpu', 'show_memory', 'show_gpu', 'show_network', 'show_temperatures']) {
@@ -80,7 +81,7 @@ export default class SysinfoPreferences extends ExtensionPreferences {
             page.add(appearance);
             if (settings.error) {
                 const error = new Adw.PreferencesGroup({title: settings.text('error')});
-                error.add(new Adw.ActionRow({title: settings.text('provider_help'), subtitle: settings.error})); page.add(error);
+                error.add(new Adw.ActionRow({title: settings.text('provider_help')})); page.add(error);
             }
             window.add(page);
         };

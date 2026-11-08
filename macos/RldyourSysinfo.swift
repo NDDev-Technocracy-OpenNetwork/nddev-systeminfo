@@ -261,7 +261,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 _ = try await cli.run(["config", "set", pair[0], pair[1], "--json"])
                 saving = false
                 await reload()
-                if pair[0].hasPrefix("sampling.") { stateItem.title = text("restart_provider") }
+                if pair[0] == "sampling.gpu" {
+                    let response = try? await cli.run(["service", "apply"])
+                    let applied = response.flatMap { try? JSONDecoder().decode(ApplyReply.self, from: $0) }?.applied ?? false
+                    stateItem.title = text(applied ? "saved" : "restart_provider")
+                }
             } catch {
                 saving = false
                 settingsItem.isEnabled = true
@@ -274,6 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(String(decoding: data, as: UTF8.self), forType: .string)
     }
+    private struct ApplyReply: Decodable { let applied: Bool }
     @objc private func reconnect() { restartClient() }
     @objc private func quitApp() { NSApplication.shared.terminate(nil) }
     #if UI_ACCEPTANCE

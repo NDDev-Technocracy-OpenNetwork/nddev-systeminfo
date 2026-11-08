@@ -159,10 +159,19 @@ pub(super) fn install(source: &Path, manifest: &Manifest, provider_only: bool) -
     Ok(())
 }
 pub(super) fn service(operation: &str) -> Result<serde_json::Value> {
-    let provider = binaries(&current()?)[0].clone();
+    let installed = current();
+    if installed.is_err() && operation == "status" {
+        return Ok(serde_json::json!({"managed":false,"enabled":false,"active":false}));
+    }
+    if installed.is_err() && operation == "apply" {
+        return Ok(serde_json::json!({"applied":false}));
+    }
+    let provider = binaries(&installed?)[0].clone();
     let running = !tray::running_products(std::slice::from_ref(&provider)).is_empty();
     match operation {
-        "status" => Ok(serde_json::json!({"active":running,"enabled":enabled(PROVIDER)?})),
+        "status" => {
+            Ok(serde_json::json!({"managed":true,"active":running,"enabled":enabled(PROVIDER)?}))
+        }
         "start" | "enable" => {
             if operation == "enable" {
                 autorun(PROVIDER, Some(&provider))?;

@@ -25,6 +25,7 @@ struct State {
     sample: Option<WireSnapshot>,
     generation: u64,
     stopped: bool,
+    apply_service: bool,
     cancel: Option<Cancellation>,
     icon: Vec<u8>,
     side: u32,
@@ -41,6 +42,7 @@ pub fn native_model(config: &Config, sample: Option<&WireSnapshot>) -> Model {
         sample: sample.cloned(),
         generation: 0,
         stopped: false,
+        apply_service: false,
         cancel: None,
         icon: Vec::new(),
         side: 32,
@@ -61,6 +63,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         sample: None,
         generation: 0,
         stopped: false,
+        apply_service: false,
         cancel: None,
         icon: Vec::new(),
         side: 32,
@@ -107,7 +110,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                             state.catalog = Catalog::load(&state.config.display.locale, &[&tray::system_language()]);
                             state.refresh_icon();
                             restart(&mut state, &shared.1);
-                            if key.starts_with("sampling.") { state.notice = Some("restart_provider"); }
+                            if key == "sampling.gpu" { state.apply_service = true; }
                         }
                         Err(error) => { state.notice = Some("error"); tracing::error!(event.name="systeminfo.config.save_failed", error.type="config", message=%error); }
                     }
@@ -161,13 +164,32 @@ fn restart(state: &mut State, wake: &Condvar) {
 }
 fn collect(shared: Shared, proxy: Proxy) {
     loop {
-        let (config, generation) = {
-            let state = shared.0.lock().unwrap();
+        let (config, generation, apply_service) = {
+            let mut state = shared.0.lock().unwrap();
             if state.stopped {
                 return;
             }
-            (state.config.clone(), state.generation)
+            let apply = std::mem::take(&mut state.apply_service);
+            (state.config.clone(), state.generation, apply)
         };
+        if apply_service {
+            // A service operation may wait on the OS. Keep it off the message
+            // thread and outside the model lock; shutdown joins this same worker.
+            let result = crate::installation::command(&["service".into(), "apply".into()]);
+            let applied = result
+                .ok()
+                .flatten()
+                .is_some_and(|value| value["applied"] == true);
+            let mut state = shared.0.lock().unwrap();
+            if state.stopped {
+                return;
+            }
+            if state.generation != generation {
+                continue;
+            }
+            state.notice = Some(if applied { "saved" } else { "restart_provider" });
+            proxy.update(state.model());
+        }
         let connect = transport::socket_path()
             .map_err(crate::client::ClientError::from)
             .and_then(|path| {

@@ -143,7 +143,7 @@ fn main() -> ExitCode {
             {
                 return ExitCode::SUCCESS;
             }
-            eprintln!("nddev-systeminfo: {error}");
+            nddev_systeminfo::telemetry::failure(&error.to_string());
             ExitCode::FAILURE
         }
     }
