@@ -663,6 +663,11 @@ fn run() -> Result {
             }
         }
         Some("measure") => resources::measure(),
+        Some("measure-legacy") => resources::legacy(Path::new(
+            &std::env::args()
+                .nth(2)
+                .ok_or("legacy measurement needs the original binary path")?,
+        )),
         Some("package") => packaging::package().map(|_| ()),
         Some("install-test") => install_test::run(),
         _ => Err("usage: systeminfo-tools <setup|generate|check|test>".into()),
