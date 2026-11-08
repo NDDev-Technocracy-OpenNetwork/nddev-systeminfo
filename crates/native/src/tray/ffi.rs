@@ -95,6 +95,15 @@ pub(super) struct Rectangle {
     pub bottom: i32,
 }
 #[cfg(feature = "ui-acceptance")]
+#[repr(C)]
+pub(super) struct MenuBarInfo {
+    pub size: u32,
+    pub bar: Rectangle,
+    pub menu: Handle,
+    pub window: Handle,
+    pub flags: u32,
+}
+#[cfg(feature = "ui-acceptance")]
 #[link(name = "dwmapi")]
 unsafe extern "system" {
     pub(super) fn DwmFlush() -> i32;
@@ -109,6 +118,20 @@ unsafe extern "system" {
         title: *const u16,
     ) -> Handle;
     pub(super) fn GetWindowRect(window: Handle, rect: *mut Rectangle) -> i32;
+    pub(super) fn IsWindowVisible(window: Handle) -> i32;
+    pub(super) fn GetMenuBarInfo(
+        window: Handle,
+        object: i32,
+        item: i32,
+        info: *mut MenuBarInfo,
+    ) -> i32;
+    pub(super) fn GetMenuItemCount(menu: Handle) -> i32;
+    pub(super) fn GetMenuItemRect(
+        window: Handle,
+        menu: Handle,
+        item: u32,
+        rect: *mut Rectangle,
+    ) -> i32;
     pub(super) fn UpdateWindow(window: Handle) -> i32;
     pub(super) fn GetDC(window: Handle) -> Handle;
     pub(super) fn ReleaseDC(window: Handle, dc: Handle) -> i32;
