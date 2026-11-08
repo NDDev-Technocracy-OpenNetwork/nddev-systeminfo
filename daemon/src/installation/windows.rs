@@ -3,6 +3,61 @@ use nddev_systeminfo_native::tray;
 const RUN: &str = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 const PROVIDER: &str = "rldyour-sysinfod";
 const UI: &str = "nddev-systeminfo";
+fn product_code() -> Result<String> {
+    let identity: toml::Value =
+        toml::from_str(include_str!("../../../packaging/windows/maintenance.toml"))?;
+    Ok(identity["product_code"]
+        .as_str()
+        .ok_or(InstallError::Invalid("Windows installer identity missing"))?
+        .to_string())
+}
+fn installer() -> Result<std::process::Command> {
+    use std::os::windows::process::CommandExt;
+    let system = PathBuf::from(
+        std::env::var_os("SystemRoot")
+            .ok_or(InstallError::Invalid("Windows directory unavailable"))?,
+    );
+    if !system.is_absolute() {
+        return Err(InstallError::Invalid("Windows directory must be absolute"));
+    }
+    let mut command = std::process::Command::new(system.join("System32/msiexec.exe"));
+    command
+        .creation_flags(0x08000000)
+        .current_dir(root()?)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    Ok(command)
+}
+fn register_maintenance(directory: &Path) -> Result {
+    let registered = enabled_product()?;
+    let mut command = installer()?;
+    command
+        .arg("/i")
+        .arg(directory.join("maintenance.msi"))
+        .args(["/qn", "/norestart"]);
+    if registered {
+        command.args(["REINSTALL=ALL", "REINSTALLMODE=vomus"]);
+    }
+    let log = root()?.join("logs/maintenance-install.log");
+    fs::create_dir_all(log.parent().unwrap())?;
+    let status = command.arg("/L*v").arg(&log).status()?;
+    if !status.success() {
+        return Err(InstallError::Invalid(
+            "Windows Installer registration failed; inspect logs/maintenance-install.log",
+        ));
+    }
+    Ok(())
+}
+fn enabled_product() -> Result<bool> {
+    let key = format!(
+        "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{}",
+        product_code()?
+    );
+    Ok(run("reg.exe", &["query".as_ref(), key.as_ref()], false)?
+        .status
+        .success())
+}
 fn root() -> Result<PathBuf> {
     Ok(crate::config::default_path()?
         .parent()
@@ -130,6 +185,7 @@ pub(super) fn install(source: &Path, manifest: &Manifest, provider_only: bool) -
         false,
     )?;
     receipt(manifest)?;
+    register_maintenance(&target)?;
     // Preserve StartupApproved and every unrelated Run value. Upgrades resume
     // only a process that was running; explicit disable/stop remains stopped.
     if !existed || active.contains(&previous[0]) {
@@ -193,6 +249,35 @@ pub(super) fn service(operation: &str) -> Result<serde_json::Value> {
     }
 }
 pub(super) fn uninstall() -> Result {
+    if !state_dir()?.join("manifest.toml").exists() || !enabled_product()? {
+        return Err(InstallError::Invalid(
+            "no owned Windows Installer registration",
+        ));
+    }
+    let log = root()?.join("logs/maintenance-uninstall.log");
+    fs::create_dir_all(log.parent().unwrap())?;
+    // The installed CLI exits before the cached MSI's temporary cleanup action
+    // opens its version directory. Windows Installer owns and removes that
+    // temporary executable and registration after the action returns.
+    installer()?
+        .arg("/x")
+        .arg(product_code()?)
+        .args(["/qn", "/norestart"])
+        .arg(format!("SYSTEMINFO_UNINSTALL_PID={}", std::process::id()))
+        .arg("/L*v")
+        .arg(log)
+        .spawn()?;
+    Ok(())
+}
+pub(super) fn maintenance(parent: Option<&str>) -> Result {
+    let parent: u32 = parent
+        .unwrap_or("0")
+        .parse()
+        .map_err(|_| InstallError::Invalid("invalid maintenance parent process"))?;
+    if parent != 0 {
+        nddev_systeminfo_native::process::wait_for_process(parent)?;
+    }
+    let _lock = super::lock()?;
     if !state_dir()?.join("manifest.toml").exists() {
         return Err(InstallError::Invalid("no owned user installation receipt"));
     }
@@ -202,11 +287,13 @@ pub(super) fn uninstall() -> Result {
     autorun(UI, None)?;
     let versions = root()?.join("versions");
     let canonical = fs::canonicalize(&versions)?;
+    if fs::canonicalize(std::env::current_dir()?)?.starts_with(&canonical) {
+        std::env::set_current_dir(root()?)?;
+    }
     if fs::canonicalize(std::env::current_exe()?)?.starts_with(&canonical) {
-        if fs::canonicalize(std::env::current_dir()?)?.starts_with(&canonical) {
-            std::env::set_current_dir(root()?)?;
-        }
-        nddev_systeminfo_native::process::unlink_current_executable()?;
+        return Err(InstallError::Invalid(
+            "Windows maintenance must run outside the installed version",
+        ));
     }
     fs::remove_dir_all(versions).map_err(|source| InstallError::Operation {
         operation: "remove the owned Windows version directories",

@@ -8,6 +8,7 @@ mod install_test;
 mod linux_ui;
 mod packaging;
 mod resources;
+mod windows_msi;
 use std::{
     collections::BTreeMap,
     error::Error,

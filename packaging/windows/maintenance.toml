@@ -1,0 +1,5 @@
+# Stable per-user Windows Installer identities. Minor releases recache the
+# maintenance package while preserving the product's installed identity.
+product_code = "{531F0D6D-74DD-4A6F-9830-E65AFB3A9B29}"
+upgrade_code = "{C5826C04-0AD5-493B-9751-8F6DABEE3838}"
+component_code = "{0F2DE07A-B7D9-4F49-A9D1-87F04B99BA3B}"

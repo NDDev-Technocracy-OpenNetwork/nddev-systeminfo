@@ -221,7 +221,7 @@ pub fn popup_entries() -> io::Result<Option<Vec<(String, bool)>>> {
     }
 }
 
-/// Deliver End/Enter only to this process's native popup, never to another
+/// Deliver Up/Enter only to this process's native popup, never to another
 /// application's foreground window. The caller must observe the real command.
 pub fn choose_last_action() -> io::Result<()> {
     disposable_desktop()?;
@@ -252,8 +252,8 @@ pub fn choose_last_action() -> io::Result<()> {
         // Address the owning GUI queue. Hosted runners may have a disconnected
         // input desktop; the modal menu still consumes real WM_KEYDOWN/UP
         // messages on its owner thread, rather than on the popup HWND.
-        if PostMessageW(target, 0x100, 0x23, 0x014f0001) == 0
-            || PostMessageW(target, 0x101, 0x23, 0xc14f0001_u32 as isize) == 0
+        if PostMessageW(target, 0x100, 0x26, 0x01480001) == 0
+            || PostMessageW(target, 0x101, 0x26, 0xc1480001_u32 as isize) == 0
         {
             return Err(io::Error::last_os_error());
         }
@@ -276,7 +276,7 @@ pub fn choose_last_action() -> io::Result<()> {
             }
             if Instant::now() >= deadline {
                 return Err(io::Error::other(format!(
-                    "End did not select the last native action: state={state:#x}, GUI flags={:#x}, focus={:?}",
+                    "Up did not select the last native action: state={state:#x}, GUI flags={:#x}, focus={:?}",
                     info.flags, info.focus
                 )));
             }

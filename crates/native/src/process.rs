@@ -56,12 +56,8 @@ unsafe extern "system" {
         options: u32,
     ) -> i32;
     fn CloseHandle(handle: Handle) -> i32;
-    fn SetFileInformationByHandle(
-        file: Handle,
-        class: i32,
-        information: *const c_void,
-        size: u32,
-    ) -> i32;
+    fn OpenProcess(access: u32, inherit: i32, process: u32) -> Handle;
+    fn WaitForSingleObject(handle: Handle, milliseconds: u32) -> u32;
     fn InitializeProcThreadAttributeList(
         list: *mut c_void,
         count: u32,
@@ -203,59 +199,32 @@ pub fn spawn_background(executable: &Path, directory: &Path, log: &File) -> io::
     Ok(())
 }
 
-/// Unlink only this process's executable using Windows' documented POSIX delete
-/// semantics. Its mapped image remains valid until process exit; no delayed
-/// script, reboot, temporary executable or replacement process is needed.
-pub fn unlink_current_executable() -> io::Result<()> {
-    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
-    let path = std::env::current_exe()?;
-    let file = std::fs::OpenOptions::new()
-        .access_mode(0x00010000 | 0x80)
-        .share_mode(1 | 2 | 4)
-        .custom_flags(0x00200000)
-        .open(path)
-        .map_err(|error| contextual("open the running image for deletion", error))?;
-    if file.metadata()?.file_attributes() & 0x400 != 0 {
-        return Err(io::Error::other("installed executable is redirected"));
+/// Wait for the initiating CLI before Windows Installer removes its mapped
+/// executable. Only SYNCHRONIZE access is requested; no process can be changed.
+pub fn wait_for_process(process: u32) -> io::Result<()> {
+    // SAFETY: OpenProcess returns an owned handle or null. An already-exited
+    // process is success; the live handle is closed on every outcome. The wait
+    // is bounded and neither retains pointers nor terminates the process.
+    unsafe {
+        let handle = OpenProcess(0x00100000, 0, process);
+        if handle.is_null() {
+            let error = io::Error::last_os_error();
+            return if error.raw_os_error() == Some(87) {
+                Ok(())
+            } else {
+                Err(error)
+            };
+        }
+        let handle = Owned(handle);
+        match WaitForSingleObject(handle.0, 30_000) {
+            0 => Ok(()),
+            0x102 => Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "initiating CLI did not exit",
+            )),
+            _ => Err(io::Error::last_os_error()),
+        }
     }
-    let flags = 1u32 | 2; // DELETE | POSIX_SEMANTICS; keep mapped image valid.
-    // SAFETY: this owned file handle has DELETE access and names our own image.
-    // FileDispositionInfoEx (21) consumes the four-byte flags synchronously.
-    // Closing the handle unlinks the name; the OS owns the live image mapping.
-    if unsafe {
-        SetFileInformationByHandle(
-            file.as_raw_handle(),
-            21,
-            (&flags as *const u32).cast(),
-            size_of::<u32>() as u32,
-        )
-    } == 0
-    {
-        return Err(contextual(
-            "unlink the running image",
-            io::Error::last_os_error(),
-        ));
-    }
-    drop(file);
-    Ok(())
-}
-#[derive(Debug)]
-struct OperationError {
-    operation: &'static str,
-    source: io::Error,
-}
-impl std::fmt::Display for OperationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.operation, self.source)
-    }
-}
-impl std::error::Error for OperationError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.source)
-    }
-}
-fn contextual(operation: &'static str, source: io::Error) -> io::Error {
-    io::Error::new(source.kind(), OperationError { operation, source })
 }
 #[cfg(test)]
 mod tests {

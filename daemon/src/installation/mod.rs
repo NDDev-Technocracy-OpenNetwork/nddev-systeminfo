@@ -170,6 +170,16 @@ pub fn command(arguments: &[String]) -> Result<Option<serde_json::Value>> {
         return Ok(None);
     }
     match operation {
+        #[cfg(target_os = "windows")]
+        "uninstall"
+            if arguments.get(1).map(String::as_str) == Some("--windows-maintenance")
+                && arguments.len() <= 3 =>
+        {
+            platform::maintenance(arguments.get(2).map(String::as_str))?;
+            Ok(Some(
+                serde_json::json!({"removed":true,"configuration_preserved":true}),
+            ))
+        }
         "install" => {
             let mut source = std::env::current_exe()?
                 .parent()
@@ -204,9 +214,11 @@ pub fn command(arguments: &[String]) -> Result<Option<serde_json::Value>> {
         "uninstall" if arguments.len() == 1 => {
             let _lock = lock()?;
             platform::uninstall()?;
-            Ok(Some(
-                serde_json::json!({"removed":true,"configuration_preserved":true}),
-            ))
+            Ok(Some(if cfg!(target_os = "windows") {
+                serde_json::json!({"pending":true,"configuration_preserved":true})
+            } else {
+                serde_json::json!({"removed":true,"configuration_preserved":true})
+            }))
         }
         "service" if arguments.len() == 2 => {
             let _lock = if arguments[1] == "status" {
