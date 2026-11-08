@@ -85,11 +85,24 @@ private final class MenuCapture: NSObject {
     let menu: NSMenu
     let path: URL
     var captured = false
+    let deadline = ProcessInfo.processInfo.systemUptime + 5
     init(menu: NSMenu, path: URL) { self.menu = menu; self.path = path }
     @objc func capture() {
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let window = windows.first {
+            guard ($0[kCGWindowOwnerPID as String] as? Int) == Int(getpid()),
+                  let bounds = $0[kCGWindowBounds as String] as? [String: Double] else { return false }
+            return (bounds["Height"] ?? 0) > 100 && (bounds["Width"] ?? 0) > 100
+        }
+        guard let number = window?[kCGWindowNumber as String] as? UInt32 else {
+            if ProcessInfo.processInfo.systemUptime < deadline {
+                perform(#selector(capture), with: nil, afterDelay: 0.02, inModes: [.eventTracking])
+            } else { menu.cancelTracking() }
+            return
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        process.arguments = ["-x", path.path]
+        process.arguments = ["-x", "-l", String(number), path.path]
         do {
             try process.run()
             process.waitUntilExit()

@@ -40,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         language = resources!.language("system")
         statusItem.button?.font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
-        statusItem.button?.image = brandImage(resources!.brand, size: resources!.metrics["compact"]!.control)
+        statusItem.button?.image = brandImage(resources!.brand, size: resources!.metrics["compact"]!.icon)
         statusItem.button?.imagePosition = .imageLeading
         menu.delegate = self
         menu.autoenablesItems = false

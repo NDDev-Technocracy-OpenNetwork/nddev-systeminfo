@@ -10,6 +10,8 @@ import Foundation
         let json = #"{"v":1,"cpu":{"usage":null,"temp":null},"memory":{"used":50,"swap":null},"gpu":{"usage":null,"memory":null,"temp":null},"disk":{"read":0,"write":0,"temp":null},"net":{"rx":1024,"tx":0},"compatible":true}"#
         let sample = try JSONDecoder().decode(MetricSample.self, from: Data(json.utf8))
         precondition(sample.v == 1 && sample.cpu.usage == nil && sample.net.rx == 1024)
+        let report = try JSONEncoder().encode(sample)
+        _ = try JSONDecoder().decode(MetricSample.self, from: report)
         for invalid in [json.replacingOccurrences(of: "\"usage\":null", with: "\"usage\":101"),
                         json.replacingOccurrences(of: "\"temp\":null", with: "\"other\":null"),
                         json.replacingOccurrences(of: "\"rx\":1024", with: "\"rx\":-1"),

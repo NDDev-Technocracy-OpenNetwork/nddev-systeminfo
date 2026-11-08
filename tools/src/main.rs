@@ -309,6 +309,14 @@ fn swift_contract() -> Result<String> {
                 )?;
             }
         }
+        result.push_str("        }\n        func encode(to encoder: any Encoder) throws {\n            var values = encoder.container(keyedBy: CodingKeys.self)\n");
+        for key in fields {
+            let key = key.as_str().ok_or("invalid field")?;
+            writeln!(
+                result,
+                "            try values.encode({key}, forKey: .{key})"
+            )?;
+        }
         result.push_str("        }\n    }\n");
     }
     result.push_str("    let v: Int\n");
