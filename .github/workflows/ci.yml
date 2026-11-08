@@ -158,7 +158,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y gnome-shell gnome-shell-extension-prefs gjs dbus-x11 libglib2.0-bin gir1.2-atspi-2.0 adwaita-icon-theme fonts-noto-core
+      - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y gnome-shell gnome-shell-extension-prefs gjs dbus-x11 libglib2.0-bin gir1.2-atspi-2.0 at-spi2-core librsvg2-common libgl1-mesa-dri libegl-mesa0 adwaita-icon-theme fonts-noto-core fonts-noto-cjk
       - name: Native protocol and async client checks
         run: |
           gjs -m extension/tests/protocol.js
