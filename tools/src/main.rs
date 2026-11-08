@@ -597,6 +597,10 @@ fn ui_resource() -> Result<String> {
         json!(nddev_systeminfo::protocol::analysis::MAX_VIEW_FRAME_BYTES),
     );
     analysis.insert(
+        "view_version".into(),
+        json!(nddev_systeminfo::protocol::analysis::VIEW_VERSION),
+    );
+    analysis.insert(
         "plot_columns".into(),
         json!(nddev_systeminfo::protocol::analysis::PLOT_COLUMNS),
     );

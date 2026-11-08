@@ -140,6 +140,13 @@ returns the same bounded plot/statistics model used by native windows; omit
 `gpu:<adapter-id>:usage|temperature|dedicated_used|shared_used`.
 `nddev-systeminfo ui` opens the installed native interface.
 
+The view is independently versioned (`v:1`) by
+[`analysis-view-v1.schema.json`](../contracts/analysis-view-v1.schema.json).
+`nddev-systeminfo schema --view` exports this schema; the Rust contract exposes
+the generated view/point/statistics types and bounded `decode_view` validation.
+Native interfaces reject an unsupported view version. This presentation
+contract does not change the ordinary v1 snapshot or its SDK consumers.
+
 Plot columns preserve observed minimum/maximum peaks. The horizontal axis
 always covers the requested interval. Nulls, dropped sequences, clock resets
 and missing intervals create gaps. Averages are weighted by valid measured

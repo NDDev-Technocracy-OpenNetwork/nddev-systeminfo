@@ -210,7 +210,13 @@ fn cli_analysis_returns_a_bounded_view_of_the_real_provider() {
         std::thread::sleep(Duration::from_millis(10));
     };
     assert!(status.success());
-    let value: serde_json::Value = serde_json::from_slice(&fs::read(out).unwrap()).unwrap();
+    let data = fs::read(out).unwrap();
+    let decoded = nddev_systeminfo::protocol::analysis::decode_view(&data).unwrap();
+    assert_eq!(
+        decoded.v,
+        nddev_systeminfo::protocol::analysis::VIEW_VERSION
+    );
+    let mut value: serde_json::Value = serde_json::from_slice(&data).unwrap();
     assert_eq!(value["metric"], "cpu.usage");
     assert_eq!(value["unit"], "percent");
     assert_eq!(value["points"].as_array().unwrap().len(), 1);
@@ -220,6 +226,11 @@ fn cli_analysis_returns_a_bounded_view_of_the_real_provider() {
             .as_array()
             .unwrap()
             .is_empty()
+    );
+    value["v"] = 2.into();
+    assert!(
+        nddev_systeminfo::protocol::analysis::decode_view(&serde_json::to_vec(&value).unwrap())
+            .is_err()
     );
 }
 impl Drop for Provider {

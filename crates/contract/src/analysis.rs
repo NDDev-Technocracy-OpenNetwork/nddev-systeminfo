@@ -5,6 +5,7 @@ use serde::Deserialize;
 use std::collections::BTreeSet;
 
 pub const SCHEMA: &str = include_str!("../../../contracts/analysis-v1.schema.json");
+pub const VIEW_SCHEMA: &str = include_str!("../../../contracts/analysis-view-v1.schema.json");
 include!(concat!(env!("OUT_DIR"), "/analysis.rs"));
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
@@ -24,6 +25,51 @@ pub fn decode(bytes: &[u8]) -> Result<Frame, ProtocolError> {
     frame.sample.validate()?;
     frame.detail.validate()?;
     Ok(frame)
+}
+
+/// Validate the versioned plot at the optional presentation/integration edge.
+pub fn decode_view(bytes: &[u8]) -> Result<View, ProtocolError> {
+    if bytes.len() > MAX_VIEW_FRAME_BYTES {
+        return Err(ProtocolError::InvalidFrame);
+    }
+    let view: View = serde_json::from_slice(bytes).map_err(|_| ProtocolError::InvalidFrame)?;
+    if view.v != VIEW_VERSION
+        || view.metric.chars().count() > 160
+        || view.label.chars().count() > 64
+        || view.unit.chars().count() > 32
+        || !(1..=HISTORY_SECONDS as u64).contains(&view.range_seconds)
+        || view.start_ms > view.end_ms
+        || view.available_ms > view.range_seconds * 1000
+        || view.statistics.covered_ms > view.range_seconds * 1000
+        || view.statistics.samples > HISTORY_RECORDS
+        || view.points.len() > MAX_PLOT_COLUMNS
+        || !view.y_min.is_finite()
+        || !view.y_max.is_finite()
+        || view.y_min >= view.y_max
+        || view.points.iter().any(|p| {
+            p.x_ms < view.start_ms
+                || p.x_ms > view.end_ms
+                || ![p.low, p.high, p.value].iter().all(|v| v.is_finite())
+                || p.low > p.value
+                || p.value > p.high
+        })
+        || [
+            view.statistics.current,
+            view.statistics.minimum,
+            view.statistics.maximum,
+            view.statistics.average,
+        ]
+        .iter()
+        .flatten()
+        .any(|v| !v.is_finite())
+    {
+        return Err(ProtocolError::InvalidFrame);
+    }
+    if let Some(frame) = &view.latest {
+        frame.sample.validate()?;
+        frame.detail.validate()?;
+    }
+    Ok(view)
 }
 
 fn percent32<'de, D: serde::Deserializer<'de>>(decoder: D) -> Result<Option<f32>, D::Error> {

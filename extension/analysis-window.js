@@ -224,6 +224,7 @@ class Dashboard {
                 for (const fragment of parts) { line.set(fragment, offset); offset += fragment.length; }
                 const raw = new TextDecoder('utf-8', {fatal: true}).decode(line);
                 const view = JSON.parse(raw);
+                if (view.v !== this.resource.analysis.view_version) throw new Error('Unsupported analysis version');
                 if (generation !== this.generation || this.closed) return;
                 this.view = view; this.raw = raw; this.live = true; this.render();
                 parts = []; length = 0; start = i + 1;

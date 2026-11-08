@@ -4,6 +4,7 @@ import Foundation
 // Rust owns retention, gap detection, decimation and statistics. AppKit keeps
 // only one bounded view, and draws only when that view or appearance changes.
 struct AnalysisView: Decodable, Sendable {
+    let v: Int
     struct Core: Decodable, Sendable { let id: UInt32; let usage: Double? }
     struct GPU: Decodable, Sendable {
         let id: String; let name: String; let status: String
@@ -46,10 +47,12 @@ final class AnalysisReader: @unchecked Sendable {
     private var buffer = Data()
     private var stopped = false
     private let limit: Int
+    private let version: Int
     init(cli: ConfigCLI, resource: UIResource, metric: String, range: Int,
          callback: @escaping @Sendable (Event) -> Void) {
         self.callback = callback
         limit = resource.analysis.frameBytes
+        version = resource.analysis.viewVersion
         queue.async {
             guard !self.stopped else { return }
             let child = Process()
@@ -85,7 +88,7 @@ final class AnalysisReader: @unchecked Sendable {
             guard count > 0 else { return finish() }
             for byte in bytes.prefix(count) {
                 if byte == 10 {
-                    guard let view = try? decode(AnalysisView.self, buffer) else { return finish() }
+                    guard let view = try? decode(AnalysisView.self, buffer), view.v == version else { return finish() }
                     callback(.view(view, buffer))
                     buffer.removeAll(keepingCapacity: true)
                 } else {

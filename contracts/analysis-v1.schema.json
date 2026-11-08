@@ -170,8 +170,6 @@
   "x-history": {
     "retention-seconds": 3600,
     "max-records": 7201,
-    "max-bytes": 8388608,
-    "plot-columns": 512
-  },
-  "x-max-view-bytes": 1048576
+    "max-bytes": 8388608
+  }
 }

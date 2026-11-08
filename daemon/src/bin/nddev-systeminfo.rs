@@ -26,6 +26,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let (mut once, mut json) = (false, false);
     let mut legacy = None;
     let mut details = false;
+    let mut view_schema = false;
     let mut metric = String::from("cpu.usage");
     let mut range_seconds = protocol::analysis::HISTORY_SECONDS as u64;
     let mut columns = protocol::analysis::PLOT_COLUMNS;
@@ -34,7 +35,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         match argument.as_str() {
             "--help" | "-h" => {
                 println!(
-                    "NDDev Systeminfo {}\n\nnddev-systeminfo [sample|watch] [--once] [--socket PATH] [--interval 0..60]\nnddev-systeminfo config <show|path|check|init|set KEY VALUE> [--json]\nnddev-systeminfo [history|analyze] [--metric cpu.usage|core:0|gpu:ID:usage] [--range-seconds 1..3600] [--once]\nnddev-systeminfo schema [--details]\n\n--config FILE selects a complete TOML configuration.\n0 requests realtime (500 ms). Missing readings remain null.\nNative collection requires Linux, macOS or Windows; NDS is optional.",
+                    "NDDev Systeminfo {}\n\nnddev-systeminfo [sample|watch] [--once] [--socket PATH] [--interval 0..60]\nnddev-systeminfo config <show|path|check|init|set KEY VALUE> [--json]\nnddev-systeminfo [history|analyze] [--metric cpu.usage|core:0|gpu:ID:usage] [--range-seconds 1..3600] [--once]\nnddev-systeminfo schema [--details|--view]\nnddev-systeminfo ui [--metric KEY]\n\n--config FILE selects a complete TOML configuration.\n0 requests realtime (500 ms). Missing readings remain null.\nNative collection requires Linux, macOS or Windows; NDS is optional.",
                     env!("CARGO_PKG_VERSION")
                 );
                 return Ok(());
@@ -59,6 +60,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 )
             }
             "--details" => details = true,
+            "--view" => view_schema = true,
             "--metric" => metric = args.next().ok_or("--metric needs a series key")?,
             "--range-seconds" => {
                 range_seconds = args
@@ -80,7 +82,9 @@ fn run() -> Result<(), Box<dyn Error>> {
     if operation == "schema" {
         println!(
             "{}",
-            if details {
+            if view_schema {
+                protocol::analysis::VIEW_SCHEMA
+            } else if details {
                 protocol::analysis::SCHEMA
             } else {
                 protocol::SCHEMA
@@ -149,7 +153,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut output = stdout.lock();
     if analysis {
         if !(1..=protocol::analysis::HISTORY_SECONDS as u64).contains(&range_seconds)
-            || !(1..=protocol::analysis::PLOT_COLUMNS * 4).contains(&columns)
+            || !(1..=protocol::analysis::MAX_PLOT_COLUMNS).contains(&columns)
         {
             return Err("analysis range or column limit exceeded".into());
         }

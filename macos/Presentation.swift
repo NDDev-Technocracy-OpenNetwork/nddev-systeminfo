@@ -25,7 +25,7 @@ struct UIResource: Decodable, Sendable {
     struct Brand: Decodable, Sendable { let viewBox: [Double]; let paths: [String] }
     struct Typography: Decodable, Sendable { let body: Double; let label: Double; let card:Double }
     struct Series:Decodable,Sendable {let key:String;let label:String;let unit:String}
-    struct Analysis:Decodable,Sendable {let frameBytes:Int;let plotColumns:Int;let historySeconds:Int;let rangesSeconds:[Int];let coresPerPage:Int}
+    struct Analysis:Decodable,Sendable {let frameBytes:Int;let plotColumns:Int;let historySeconds:Int;let rangesSeconds:[Int];let coresPerPage:Int;let viewVersion:Int}
     struct Cell:Decodable,Sendable {let label:String;let metric:String}
     let website:String
     let series:[Series]

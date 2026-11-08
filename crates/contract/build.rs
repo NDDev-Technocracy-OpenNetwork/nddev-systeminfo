@@ -123,7 +123,6 @@ fn analysis() {
         ("MAX_ANALYSIS_FRAME_BYTES", "x-max-frame-bytes"),
         ("MAX_CORES", "x-max-cores"),
         ("MAX_GPUS", "x-max-gpus"),
-        ("MAX_VIEW_FRAME_BYTES", "x-max-view-bytes"),
     ] {
         writeln!(output, "pub const {name}: usize = {};", schema[key]).unwrap();
     }
@@ -131,7 +130,6 @@ fn analysis() {
         ("HISTORY_SECONDS", "retention-seconds"),
         ("HISTORY_RECORDS", "max-records"),
         ("HISTORY_BYTES", "max-bytes"),
-        ("PLOT_COLUMNS", "plot-columns"),
     ] {
         writeln!(
             output,
@@ -140,10 +138,42 @@ fn analysis() {
         )
         .unwrap();
     }
+    analysis_structs(&schema, &mut output, true);
+    let path = "../../contracts/analysis-view-v1.schema.json";
+    println!("cargo:rerun-if-changed={path}");
+    let view: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    writeln!(
+        output,
+        "pub const VIEW_VERSION: u32 = {};",
+        view["$defs"]["View"]["properties"]["v"]["const"]
+    )
+    .unwrap();
+    for (name, value) in [
+        ("MAX_VIEW_FRAME_BYTES", &view["x-max-frame-bytes"]),
+        ("PLOT_COLUMNS", &view["x-default-columns"]),
+        (
+            "MAX_PLOT_COLUMNS",
+            &view["$defs"]["View"]["properties"]["points"]["maxItems"],
+        ),
+    ] {
+        writeln!(output, "pub const {name}: usize = {value};").unwrap();
+    }
+    analysis_structs(&view, &mut output, false);
+    fs::write(
+        PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("analysis.rs"),
+        output,
+    )
+    .unwrap();
+}
+fn analysis_structs(schema: &Value, output: &mut String, debug: bool) {
     for (name, definition) in schema["$defs"].as_object().unwrap() {
+        if definition["x-rust-default"] == true {
+            output.push_str("#[derive(Default)]\n");
+        }
         writeln!(
             output,
-            "#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]\npub struct {name} {{"
+            "#[derive(Clone, {}serde::Deserialize, serde::Serialize)]\npub struct {name} {{",
+            if debug { "Debug, " } else { "" }
         )
         .unwrap();
         for (field, value) in definition["properties"].as_object().unwrap() {
@@ -166,13 +196,17 @@ fn analysis() {
         }
         output.push_str("}\n");
     }
-    fs::write(
-        PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("analysis.rs"),
-        output,
-    )
-    .unwrap();
 }
 fn analysis_type(value: &Value) -> (String, bool) {
+    if value["anyOf"].is_array() {
+        return (
+            value["x-rust-type"]
+                .as_str()
+                .expect("nullable reference Rust type")
+                .into(),
+            true,
+        );
+    }
     if let Some(reference) = value["$ref"].as_str() {
         return (reference.rsplit('/').next().unwrap().into(), false);
     }

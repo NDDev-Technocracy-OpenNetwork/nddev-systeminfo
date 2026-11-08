@@ -1,10 +1,10 @@
 //! Pure, shared plot preparation. Thin native views retain only the current
 //! bounded view model; aggregation and truthful gaps are implemented once.
+pub use crate::protocol::analysis::{Point, Statistics, View};
 use crate::protocol::{
     self,
-    analysis::{Frame, HISTORY_BYTES, HISTORY_RECORDS, HISTORY_SECONDS, PLOT_COLUMNS},
+    analysis::{Frame, HISTORY_BYTES, HISTORY_RECORDS, HISTORY_SECONDS},
 };
-use serde::Serialize;
 use std::{collections::VecDeque, mem::size_of};
 
 #[derive(Clone)]
@@ -80,38 +80,6 @@ impl Selection {
         protocol::metric_value(&frame.sample, &self.key)
     }
 }
-#[derive(Clone, Serialize)]
-pub struct Point {
-    pub x_ms: u64,
-    pub low: f64,
-    pub high: f64,
-    pub value: f64,
-    pub gap: bool,
-}
-#[derive(Clone, Serialize, Default)]
-pub struct Statistics {
-    pub current: Option<f64>,
-    pub minimum: Option<f64>,
-    pub maximum: Option<f64>,
-    pub average: Option<f64>,
-    pub samples: usize,
-    pub covered_ms: u64,
-}
-#[derive(Clone, Serialize)]
-pub struct View {
-    pub latest: Option<Frame>,
-    pub metric: String,
-    pub label: String,
-    pub unit: String,
-    pub start_ms: u64,
-    pub end_ms: u64,
-    pub available_ms: u64,
-    pub range_seconds: u64,
-    pub y_min: f64,
-    pub y_max: f64,
-    pub points: Vec<Point>,
-    pub statistics: Statistics,
-}
 #[derive(Default)]
 pub struct Store {
     frames: VecDeque<(Frame, usize)>,
@@ -162,7 +130,7 @@ impl Store {
     }
     pub fn view(&self, selection: &Selection, range_seconds: u64, columns: usize) -> View {
         let range_seconds = range_seconds.clamp(1, HISTORY_SECONDS as u64);
-        let columns = columns.clamp(1, PLOT_COLUMNS * 4);
+        let columns = columns.clamp(1, crate::protocol::analysis::MAX_PLOT_COLUMNS);
         let latest = self.frames.back().map(|(f, _)| f);
         let end_ms = latest.map_or(0, |f| f.detail.elapsed_ms);
         let start_ms = end_ms.saturating_sub(range_seconds * 1000);
@@ -251,6 +219,7 @@ impl Store {
         };
         let y_min = statistics.minimum.unwrap_or(0.0).min(0.0);
         View {
+            v: crate::protocol::analysis::VIEW_VERSION,
             latest: latest.cloned(),
             metric: selection.key.clone(),
             label: selection.label.clone(),
