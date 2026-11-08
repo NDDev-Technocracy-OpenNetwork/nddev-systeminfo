@@ -208,7 +208,7 @@ fn collect(shared: Shared, proxy: Proxy) {
                 if state.generation != generation {
                     continue;
                 }
-                state.cancel = client.cancellation().ok();
+                state.cancel = Some(client.cancellation());
             }
             loop {
                 let frame = client.next_sample();
