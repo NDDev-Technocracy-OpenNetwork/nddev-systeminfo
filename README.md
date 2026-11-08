@@ -132,6 +132,8 @@ unavailable and sleeping adapters; shared memory is bytes, separately from
 dedicated memory. The native analysis window selects any reading or core,
 15/30/60-minute ranges, pause/resume and JSON copy. OpenNetwork's themes and
 five locales also apply to these windows, with a direct website action.
+The installed `ui` launcher opens the overview. Linux also accepts a metric
+shortcut; macOS and Windows use the running app's profile and window controls.
 
 History records up to one hour while a native monitoring client is connected,
 bounded by 7201 records and 8 MiB of retained record estimates. The window shows

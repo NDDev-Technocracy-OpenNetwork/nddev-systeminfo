@@ -33,6 +33,13 @@ pub fn open(config: Option<&Path>, metric: Option<&str>) -> io::Result<()> {
             "unknown metric series",
         ));
     }
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    if config.is_some() || metric.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "the installed native app uses its saved profile; select a metric in its window",
+        ));
+    }
     #[cfg(target_os = "linux")]
     let mut command = {
         let home =
@@ -68,7 +75,6 @@ pub fn open(config: Option<&Path>, metric: Option<&str>) -> io::Result<()> {
     };
     #[cfg(target_os = "macos")]
     let mut command = {
-        let _ = (config, metric);
         let mut command = Command::new("open");
         command
             .arg("-a")
@@ -79,7 +85,6 @@ pub fn open(config: Option<&Path>, metric: Option<&str>) -> io::Result<()> {
     };
     #[cfg(target_os = "windows")]
     let mut command = {
-        let _ = (config, metric);
         let path = std::env::current_exe()?.with_file_name("nddev-systeminfo-tray.exe");
         let mut command = Command::new(path);
         command.arg("--show");

@@ -27,7 +27,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut legacy = None;
     let mut details = false;
     let mut view_schema = false;
-    let mut metric = String::from("cpu.usage");
+    let mut metric = None;
     let mut range_seconds = protocol::analysis::HISTORY_SECONDS as u64;
     let mut columns = protocol::analysis::PLOT_COLUMNS;
     let mut command = Vec::new();
@@ -35,7 +35,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         match argument.as_str() {
             "--help" | "-h" => {
                 println!(
-                    "NDDev Systeminfo {}\n\nnddev-systeminfo [sample|watch] [--once] [--socket PATH] [--interval 0..60]\nnddev-systeminfo config <show|path|check|init|set KEY VALUE> [--json]\nnddev-systeminfo [history|analyze] [--metric cpu.usage|core:0|gpu:ID:usage] [--range-seconds 1..3600] [--once]\nnddev-systeminfo schema [--details|--view]\nnddev-systeminfo ui [--metric KEY]\n\n--config FILE selects a complete TOML configuration.\n0 requests realtime (500 ms). Missing readings remain null.\nNative collection requires Linux, macOS or Windows; NDS is optional.",
+                    "NDDev Systeminfo {}\n\nnddev-systeminfo [sample|watch] [--once] [--socket PATH] [--interval 0..60]\nnddev-systeminfo config <show|path|check|init|set KEY VALUE> [--json]\nnddev-systeminfo [history|analyze] [--metric cpu.usage|core:0|gpu:ID:usage] [--range-seconds 1..3600] [--once]\nnddev-systeminfo schema [--details|--view]\nnddev-systeminfo ui\n\n--config FILE selects a complete TOML configuration.\n0 requests realtime (500 ms). Missing readings remain null.\nNative collection requires Linux, macOS or Windows; NDS is optional.",
                     env!("CARGO_PKG_VERSION")
                 );
                 return Ok(());
@@ -61,7 +61,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
             "--details" => details = true,
             "--view" => view_schema = true,
-            "--metric" => metric = args.next().ok_or("--metric needs a series key")?,
+            "--metric" => metric = Some(args.next().ok_or("--metric needs a series key")?),
             "--range-seconds" => {
                 range_seconds = args
                     .next()
@@ -93,7 +93,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     if operation == "ui" && command.len() == 1 {
-        nddev_systeminfo::desktop::open(config_path.as_deref(), Some(&metric))?;
+        nddev_systeminfo::desktop::open(config_path.as_deref(), metric.as_deref())?;
         return Ok(());
     }
     let mut config = if operation == "config"
@@ -157,7 +157,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         {
             return Err("analysis range or column limit exceeded".into());
         }
-        let selection = Selection::parse(&metric).ok_or("unknown metric series")?;
+        let selection = Selection::parse(metric.as_deref().unwrap_or("cpu.usage"))
+            .ok_or("unknown metric series")?;
         let mut store = Store::default();
         let mut replaying = history;
         loop {
