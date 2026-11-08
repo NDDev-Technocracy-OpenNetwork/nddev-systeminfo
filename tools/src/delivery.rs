@@ -35,6 +35,14 @@ struct Github {
     repository: String,
 }
 impl Github {
+    fn resource(&self, path: &str) -> String {
+        let root = format!("repos/{}", self.repository);
+        if path.is_empty() {
+            root
+        } else {
+            format!("{root}/{path}")
+        }
+    }
     fn api(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value> {
         let mut request = Command::new("gh");
         request.args([
@@ -43,7 +51,7 @@ impl Github {
             "github.com",
             "--method",
             method,
-            &format!("repos/{}/{path}", self.repository),
+            &self.resource(path),
         ]);
         if body.is_some() {
             request.args(["--input", "-"]).stdin(Stdio::piped());
@@ -74,12 +82,7 @@ impl Github {
         // A 404 is the one expected missing state. Other API failures never
         // turn into permission to create or overwrite a release.
         let output = Command::new("gh")
-            .args([
-                "api",
-                "--hostname",
-                "github.com",
-                &format!("repos/{}/{path}", self.repository),
-            ])
+            .args(["api", "--hostname", "github.com", &self.resource(path)])
             .output()?;
         if output.status.success() {
             return Ok(Some(serde_json::from_slice(&output.stdout)?));
@@ -115,7 +118,7 @@ impl Github {
                 "github.com",
                 "--header",
                 "Accept: application/octet-stream",
-                &format!("repos/{}/{path}", self.repository),
+                &self.resource(path),
             ])
             .stdout(fs::File::create(destination)?)
             .stderr(Stdio::piped())
@@ -722,6 +725,17 @@ fn verify_distribution(artifact_name: &str, distribution: &str) -> Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn repository_identity_uses_the_real_github_root_route() {
+        let github = Github {
+            repository: "example/project".into(),
+        };
+        assert_eq!(github.resource(""), "repos/example/project");
+        assert_eq!(
+            github.resource("actions/runs/42/jobs?per_page=100&page=1"),
+            "repos/example/project/actions/runs/42/jobs?per_page=100&page=1"
+        );
+    }
     #[test]
     fn publication_rejects_other_sources_and_incomplete_qualification() {
         let config: Configuration = toml::from_str(include_str!("../../release.toml")).unwrap();
