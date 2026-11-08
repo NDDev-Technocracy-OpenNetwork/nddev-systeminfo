@@ -1,6 +1,7 @@
 //! Reproducible source checks, tools and packaging. Run builds on a build host.
 use serde::Deserialize;
 mod linux_ui;
+mod resources;
 use std::{
     collections::BTreeMap,
     error::Error,
@@ -571,6 +572,7 @@ fn run() -> Result {
         Some("test") => test(),
         Some("ui-linux") => linux_ui::run(),
         Some("ui-linux-session") => linux_ui::session(),
+        Some("measure") => resources::measure(),
         _ => Err("usage: systeminfo-tools <setup|generate|check|test>".into()),
     }
 }

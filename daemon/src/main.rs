@@ -45,10 +45,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!(
-                "{{\"severity\":\"ERROR\",\"event.name\":\"systeminfo.failed\",\"error.type\":\"runtime\",\"message\":{}}}",
-                serde_json::to_string(&error.to_string()).unwrap_or_default()
-            );
+            telemetry::failure(&error.to_string());
             ExitCode::FAILURE
         }
     }

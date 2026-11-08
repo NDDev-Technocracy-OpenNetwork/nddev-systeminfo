@@ -70,28 +70,30 @@ pub struct LegacySettings {
 }
 impl LegacySettings {
     pub fn apply(&self, config: &mut Config) -> Result<bool, ConfigError> {
+        let mut candidate = config.clone();
         let mut changed = false;
         if let Some(interval) = self.interval {
-            config.sampling.interval_seconds = interval;
+            candidate.sampling.interval_seconds = interval;
             changed = true;
         }
         for (value, destination) in [
-            (self.show_cpu, &mut config.display.show_cpu),
-            (self.show_memory, &mut config.display.show_memory),
-            (self.show_gpu, &mut config.display.show_gpu),
-            (self.show_network, &mut config.display.show_network),
+            (self.show_cpu, &mut candidate.display.show_cpu),
+            (self.show_memory, &mut candidate.display.show_memory),
+            (self.show_gpu, &mut candidate.display.show_gpu),
+            (self.show_network, &mut candidate.display.show_network),
             (
                 self.show_temperatures,
-                &mut config.display.show_temperatures,
+                &mut candidate.display.show_temperatures,
             ),
-            (self.collect_gpu, &mut config.sampling.gpu),
+            (self.collect_gpu, &mut candidate.sampling.gpu),
         ] {
             if let Some(value) = value {
                 *destination = value;
                 changed = true;
             }
         }
-        config.validate()?;
+        candidate.validate()?;
+        *config = candidate;
         Ok(changed)
     }
 }
@@ -100,7 +102,7 @@ impl LegacySettings {
 pub enum ConfigError {
     #[error("cannot read configuration: {0}")]
     Io(#[from] io::Error),
-    #[error("invalid TOML configuration: {0}")]
+    #[error("invalid TOML configuration")]
     Toml(#[from] toml::de::Error),
     #[error("invalid configuration setting: {0}")]
     Invalid(&'static str),
