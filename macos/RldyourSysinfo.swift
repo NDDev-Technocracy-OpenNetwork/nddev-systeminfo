@@ -53,7 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             await initializeConfig()
             #if UI_ACCEPTANCE
             do { try await runNativeAcceptance(self) }
-            catch { fputs("native acceptance failed: \(error)\n", stderr); exit(1) }
+            catch { FileHandle.standardError.write(Data("native acceptance failed: \(error)\n".utf8)); exit(1) }
             #endif
         }
     }

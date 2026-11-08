@@ -74,8 +74,19 @@ private func until(_ predicate: () -> Bool) async throws {
 private func captureMenu(_ menu: NSMenu, _ path: URL) throws {
     // Native tracking lays out and paints the actual menu. A queued capture runs
     // in its tracking mode, then cancels tracking so the scenario can continue.
+    let capture = MenuCapture(menu: menu, path: path)
+    capture.perform(#selector(MenuCapture.capture), with: nil, afterDelay: 0, inModes: [.eventTracking])
+    menu.popUp(positioning: nil, at: NSPoint(x: 100, y: NSScreen.main!.visibleFrame.maxY - 30), in: nil)
+    guard capture.captured else { throw TestFailure.screenshot }
+}
+
+@MainActor
+private final class MenuCapture: NSObject {
+    let menu: NSMenu
+    let path: URL
     var captured = false
-    RunLoop.main.perform(inModes: [.eventTracking]) {
+    init(menu: NSMenu, path: URL) { self.menu = menu; self.path = path }
+    @objc func capture() {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         process.arguments = ["-x", path.path]
@@ -86,6 +97,4 @@ private func captureMenu(_ menu: NSMenu, _ path: URL) throws {
         } catch { captured = false }
         menu.cancelTracking()
     }
-    menu.popUp(positioning: nil, at: NSPoint(x: 100, y: NSScreen.main!.visibleFrame.maxY - 30), in: nil)
-    guard captured else { throw TestFailure.screenshot }
 }
