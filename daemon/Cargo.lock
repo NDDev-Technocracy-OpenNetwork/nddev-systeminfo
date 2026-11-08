@@ -180,9 +180,9 @@ checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 
 [[package]]
 name = "iokit"
-version = "0.6.0"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1714de0e7e71e6ad3267ce106ac1519b5b1935e0b60286c0033a6400258e30b8"
+checksum = "3585e04af82e0666124f13eca24e8635b07430dcc5bc3d920d036107f7b40d5a"
 dependencies = [
  "apple-cf",
  "doom-fish-utils",
