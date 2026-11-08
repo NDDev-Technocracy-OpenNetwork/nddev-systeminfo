@@ -59,6 +59,11 @@ pub struct Client {
     timeout: Duration,
 }
 impl Client {
+    /// An independent handle only shuts down this connection. It lets a native
+    /// UI cancel a sleeping read immediately when settings change or it exits.
+    pub fn cancellation(&self) -> io::Result<Cancellation> {
+        Ok(Cancellation(self.reader.get_ref().socket.try_clone()?))
+    }
     pub fn connect(path: &Path, interval: u64, timeout: Duration) -> Result<Self, ClientError> {
         let cadence = cadence(interval).ok_or(ClientError::InvalidConfiguration)?;
         if !path.is_absolute() || timeout.is_zero() || timeout > Duration::from_secs(60) {
@@ -111,6 +116,13 @@ impl Client {
                 return Ok(snapshot);
             }
         }
+    }
+}
+
+pub struct Cancellation(Socket);
+impl Cancellation {
+    pub fn cancel(&self) {
+        let _ = self.0.shutdown(std::net::Shutdown::Both);
     }
 }
 
