@@ -56,6 +56,75 @@ fn files(path: &Path) -> Result<Vec<PathBuf>> {
 fn digest(path: &Path) -> Result<String> {
     Ok(nddev_systeminfo::installation::digest(path)?)
 }
+fn release_asset(source: &str, destination: &Path) -> Result {
+    let (repository, release) = source
+        .strip_prefix("https://github.com/")
+        .and_then(|source| source.split_once("/releases/download/"))
+        .ok_or("tool source must be an official GitHub release")?;
+    let (tag, name) = release.split_once('/').ok_or("invalid release source")?;
+    let request = |url: &str, accept: &str| {
+        let mut curl = Command::new("curl");
+        curl.args([
+            "--fail",
+            "--location",
+            "--silent",
+            "--show-error",
+            "--connect-timeout",
+            "10",
+            "--max-time",
+            "60",
+            "--header",
+            accept,
+        ]);
+        // CI supplies a contents-read token. It never enters error arguments or
+        // a receipt; curl strips Authorization when following a foreign host.
+        if let Some(token) = std::env::var_os("GH_TOKEN") {
+            let mut header = std::ffi::OsString::from("Authorization: Bearer ");
+            header.push(token);
+            curl.arg("--header").arg(header);
+        }
+        curl.arg(url);
+        curl
+    };
+    let metadata = request(
+        &format!("https://api.github.com/repos/{repository}/releases/tags/{tag}"),
+        "Accept: application/vnd.github+json",
+    )
+    .output()?;
+    if !metadata.status.success() {
+        return Err(format!(
+            "cannot read tool release: {repository}@{tag} ({})",
+            metadata.status
+        )
+        .into());
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(&metadata.stdout)?;
+    let assets: Vec<_> = metadata["assets"]
+        .as_array()
+        .ok_or("release assets missing")?
+        .iter()
+        .filter(|asset| asset["name"].as_str() == Some(name))
+        .collect();
+    if assets.len() != 1 {
+        return Err("tool release asset is missing or ambiguous".into());
+    }
+    let id = assets[0]["id"].as_u64().ok_or("invalid release asset id")?;
+    let result = request(
+        &format!("https://api.github.com/repos/{repository}/releases/assets/{id}"),
+        "Accept: application/octet-stream",
+    )
+    .arg("--output")
+    .arg(destination)
+    .output()?;
+    if !result.status.success() {
+        return Err(format!(
+            "cannot fetch tool asset: {repository}@{tag}/{name} ({})",
+            result.status
+        )
+        .into());
+    }
+    Ok(())
+}
 fn setup() -> Result {
     let tools: Toolchain = toml::from_str(include_str!("../toolchain.toml"))?;
     let host = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
@@ -80,26 +149,7 @@ fn setup() -> Result {
         }
         fs::create_dir_all(&folder)?;
         let archive = folder.join("tool.tar.gz");
-        command(
-            "curl",
-            &[
-                "--fail",
-                "--location",
-                "--silent",
-                "--show-error",
-                "--retry",
-                "3",
-                "--retry-max-time",
-                "45",
-                "--connect-timeout",
-                "10",
-                "--max-time",
-                "60",
-                "--output",
-                archive.to_str().unwrap(),
-                &artifact.url,
-            ],
-        )?;
+        release_asset(&artifact.url, &archive)?;
         if digest(&archive)? != artifact.sha256 {
             return Err(format!("checksum mismatch: {} {}", tool.name, tool.version).into());
         }

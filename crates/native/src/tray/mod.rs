@@ -6,7 +6,7 @@ pub mod acceptance;
 mod ffi;
 use ffi::*;
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     io,
     marker::PhantomData,
     mem::{size_of, zeroed},
@@ -25,6 +25,7 @@ const THEME_CHANGED: u32 = 0x8005;
 const CANCEL_MENU: u32 = 0x8006;
 const CLOSE: u32 = 0x0010;
 thread_local! { static DEFERRED: Cell<u8> = const { Cell::new(0) }; }
+thread_local! { static POPUP: RefCell<Option<Popup>> = const { RefCell::new(None) }; }
 static TASKBAR_MESSAGE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 #[derive(Clone, PartialEq, Eq)]
@@ -239,9 +240,7 @@ impl Tray {
         } else {
             null_mut()
         };
-        let text: Vec<_> = model.tooltip.encode_utf16().take(127).collect();
-        let mut tip = [0; 128];
-        tip[..text.len()].copy_from_slice(&text);
+        let tip = tooltip(&model.tooltip);
         if self.data.tip != tip {
             self.data.tip = tip;
             changed = true;
@@ -275,7 +274,11 @@ impl Tray {
                 OPEN => {
                     on_event(Event::ConfigurationChanged, &self.proxy);
                     self.refresh()?;
-                    if let Some(command) = self.menu()? {
+                    let anchor = (message.lparam == 1).then(|| Point {
+                        x: message.wparam as u16 as i16 as i32,
+                        y: (message.wparam >> 16) as u16 as i16 as i32,
+                    });
+                    if let Some(command) = self.menu(anchor)? {
                         on_event(Event::Command(command), &self.proxy);
                     }
                     // Native popup tracking runs a nested message loop. Its
@@ -307,14 +310,24 @@ impl Tray {
             }
         }
     }
-    fn menu(&self) -> io::Result<Option<u32>> {
+    fn menu(&self, anchor: Option<Point>) -> io::Result<Option<u32>> {
         let model = self.proxy.0.lock().unwrap().model.clone();
         let menu = create_menu(&model.entries)?;
-        let mut point = Point::default();
+        let anchored = anchor.is_some();
+        let mut point = anchor.unwrap_or_default();
+        POPUP.with(|value| {
+            *value.borrow_mut() = Some(Popup {
+                menu: menu.0 as usize,
+                proxy: self.proxy.clone(),
+                entries: model.entries,
+            })
+        });
         // SAFETY: popup handle belongs to this scope. Foreground ownership is
         // required for dismiss-on-outside-click; coordinates come from Win32.
         let command = unsafe {
-            GetCursorPos(&mut point);
+            if !anchored {
+                GetCursorPos(&mut point);
+            }
             SetForegroundWindow(self.window);
             let command = TrackPopupMenuEx(
                 menu.0,
@@ -327,6 +340,7 @@ impl Tray {
             PostMessageW(self.window, 0, 0, 0);
             command
         };
+        POPUP.with(|value| *value.borrow_mut() = None);
         Ok((command != 0).then_some(command))
     }
     pub fn watch_config(&self, path: &Path) -> io::Result<Watcher> {
@@ -360,7 +374,7 @@ unsafe extern "system" fn procedure(
     lparam: isize,
 ) -> isize {
     // SAFETY: Win32 invokes this callback for a live window. All posted data is
-    // integer-only; no panic, userdata dereference, allocation or Rust callback.
+    // integer-only, with creator-thread popup state held in TLS, never userdata.
     unsafe {
         match message {
             UPDATE | CONFIG_CHANGED | THEME_CHANGED => {
@@ -372,6 +386,13 @@ unsafe extern "system" fn procedure(
                     4
                 };
                 DEFERRED.with(|value| value.set(value.get() | flag));
+                if message == UPDATE {
+                    update_popup();
+                } else {
+                    // Apply a new language/layout only after closing the old
+                    // native tree. Readings update in place while it stays open.
+                    EndMenu();
+                }
                 0
             }
             value
@@ -391,7 +412,7 @@ unsafe extern "system" fn procedure(
             }
             CALLBACK => {
                 if matches!((lparam as u32) & 0xffff, 0x0205 | 0x007b | 0x0400 | 0x0401) {
-                    PostMessageW(window, OPEN, 0, 0);
+                    PostMessageW(window, OPEN, wparam, 1);
                 }
                 0
             }
@@ -400,6 +421,107 @@ unsafe extern "system" fn procedure(
                 0
             }
             _ => DefWindowProcW(window, message, wparam, lparam),
+        }
+    }
+}
+struct Popup {
+    menu: usize,
+    proxy: Proxy,
+    entries: Vec<Entry>,
+}
+fn update_popup() {
+    POPUP.with(|value| {
+        let Ok(mut slot) = value.try_borrow_mut() else {
+            return;
+        };
+        let Some(popup) = slot.as_mut() else {
+            return;
+        };
+        let model = {
+            let Ok(mut shared) = popup.proxy.0.try_lock() else {
+                return;
+            };
+            shared.pending = false;
+            shared.model.clone()
+        };
+        let compatible = popup.entries.len() == model.entries.len()
+            && popup
+                .entries
+                .iter()
+                .zip(&model.entries)
+                .all(|(old, new)| match (old, new) {
+                    (Entry::Label(_), Entry::Label(_)) => true,
+                    (Entry::Action { id: a, .. }, Entry::Action { id: b, .. }) => a == b,
+                    _ => old == new,
+                });
+        // SAFETY: this thread owns the menu until TrackPopupMenuEx returns.
+        // Win32 copies every supplied UTF-16 string during SetMenuItemInfoW.
+        unsafe {
+            if !compatible {
+                EndMenu();
+                return;
+            }
+            for (index, (old, new)) in popup.entries.iter().zip(&model.entries).enumerate() {
+                if old == new {
+                    continue;
+                }
+                let (text, state) = match new {
+                    Entry::Label(text) => (text, 0),
+                    Entry::Action {
+                        title,
+                        enabled,
+                        checked,
+                        ..
+                    } => (
+                        title,
+                        (if *enabled { 0 } else { 2 }) | if *checked { 8 } else { 0 },
+                    ),
+                    _ => continue,
+                };
+                let mut text = wide(&text.replace('&', "&&"));
+                let mut info: MenuItemInfo = zeroed();
+                info.size = size_of::<MenuItemInfo>() as u32;
+                info.mask = 0x40 | 1; // MIIM_STRING | MIIM_STATE
+                info.state = state;
+                info.text = text.as_mut_ptr();
+                if SetMenuItemInfoW(popup.menu as Handle, index as u32, 1, &info) == 0 {
+                    EndMenu();
+                    return;
+                }
+            }
+            popup.entries = model.entries;
+            if let Some(window) = popup_window(Some(popup.menu as Handle)) {
+                InvalidateRect(window, null(), 1);
+                UpdateWindow(window);
+            }
+        }
+    });
+}
+fn popup_window(menu: Option<Handle>) -> Option<Handle> {
+    // SAFETY: enumerate borrowed HWNDs and inspect only visible popup windows
+    // owned by this process. No pointer or handle is retained after this call.
+    unsafe {
+        let class = wide("#32768");
+        let mut window = null_mut();
+        loop {
+            window = FindWindowExW(null_mut(), window, class.as_ptr(), null());
+            if window.is_null() {
+                return None;
+            }
+            let mut pid = 0;
+            GetWindowThreadProcessId(window, &mut pid);
+            if pid != std::process::id() || IsWindowVisible(window) == 0 {
+                continue;
+            }
+            let mut info: MenuBarInfo = zeroed();
+            info.size = size_of::<MenuBarInfo>() as u32;
+            if GetMenuBarInfo(window, -4, 0, &mut info) != 0
+                && !info.menu.is_null()
+                && GetMenuItemCount(info.menu) > 0
+                && menu.is_none_or(|menu| menu == info.menu)
+            {
+                return Some(window);
+            }
         }
     }
 }
@@ -596,6 +718,24 @@ pub fn copy_text(text: &str) -> io::Result<()> {
 fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(Some(0)).collect()
 }
+fn tooltip(value: &str) -> [u16; 128] {
+    let mut result = [0; 128];
+    let mut used = 0;
+    for line in value.lines() {
+        let text: Vec<_> = line.encode_utf16().collect();
+        let separator = usize::from(used != 0);
+        if used + separator + text.len() > 127 {
+            break;
+        }
+        if separator != 0 {
+            result[used] = 10;
+            used += 1;
+        }
+        result[used..used + text.len()].copy_from_slice(&text);
+        used += text.len();
+    }
+    result
+}
 
 fn processes() -> sysinfo::System {
     let mut system = sysinfo::System::new();
@@ -702,7 +842,7 @@ impl Watcher {
         // SAFETY: paths live through calls; both returned handles are owned. The
         // thread gets integer handle values, accesses no Rust pointer and exits
         // before Drop closes the cancellation event.
-        let change = unsafe { FindFirstChangeNotificationW(path.as_ptr(), 0, 0x1 | 0x10) };
+        let change = unsafe { FindFirstChangeNotificationW(path.as_ptr(), 0, 0x1 | 0x2 | 0x10) };
         if change as isize == -1 {
             return Err(io::Error::last_os_error());
         }
@@ -795,6 +935,8 @@ mod tests {
         assert_eq!(size_of::<NotifyIcon>(), 976);
         assert_eq!(size_of::<Message>(), 48);
         assert_eq!(size_of::<BitmapHeader>(), 40);
+        assert_eq!(size_of::<MenuItemInfo>(), 80);
+        assert_eq!(size_of::<MenuBarInfo>(), 48);
         assert_eq!(std::mem::offset_of!(NotifyIcon, icon), 32);
         assert_eq!(std::mem::offset_of!(NotifyIcon, version), 816);
     }

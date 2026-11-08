@@ -1,5 +1,5 @@
 //! Native CI capture of this process's visible popup, never another app's UI.
-use super::{ffi::*, wide};
+use super::{ffi::*, popup_window};
 use std::{
     io,
     mem::size_of,
@@ -11,19 +11,9 @@ pub fn capture_popup(path: &Path) -> io::Result<bool> {
     // SAFETY: only integer handles from Win32 are traversed. A window must belong
     // to this process and have bounded dimensions before allocating a bitmap.
     unsafe {
-        let class = wide("#32768");
-        let mut window = null_mut();
-        loop {
-            window = FindWindowExW(null_mut(), window, class.as_ptr(), null());
-            if window.is_null() {
-                return Ok(false);
-            }
-            let mut pid = 0;
-            GetWindowThreadProcessId(window, &mut pid);
-            if pid == std::process::id() && IsWindowVisible(window) != 0 {
-                break;
-            }
-        }
+        let Some(window) = popup_window(None) else {
+            return Ok(false);
+        };
         // A menu HWND exists before native layout/presentation completes. Wait
         // for real visible item rectangles, then capture its final geometry.
         let mut info: MenuBarInfo = std::mem::zeroed();
@@ -119,6 +109,46 @@ pub fn capture_popup(path: &Path) -> io::Result<bool> {
         }
         save_png(path, width as u32, height as u32, &pixels)?;
         Ok(true)
+    }
+}
+/// Read the actual native tree while its modal loop is running. This acceptance
+/// surface never returns a model's cached strings in place of OS state.
+pub fn popup_entries() -> io::Result<Option<Vec<(String, bool)>>> {
+    let Some(window) = popup_window(None) else {
+        return Ok(None);
+    };
+    // SAFETY: borrowed menu belongs to this process; each bounded text buffer
+    // lives through the call and Win32 reports its initialized UTF-16 length.
+    unsafe {
+        let mut info: MenuBarInfo = std::mem::zeroed();
+        info.size = size_of::<MenuBarInfo>() as u32;
+        if GetMenuBarInfo(window, -4, 0, &mut info) == 0 {
+            return Ok(None);
+        }
+        let count = GetMenuItemCount(info.menu);
+        if !(1..=128).contains(&count) {
+            return Err(io::Error::other("invalid native menu size"));
+        }
+        let mut entries = Vec::with_capacity(count as usize);
+        for index in 0..count {
+            let mut text = [0u16; 1024];
+            let length = GetMenuStringW(
+                info.menu,
+                index as u32,
+                text.as_mut_ptr(),
+                text.len() as i32,
+                0x400,
+            );
+            let state = GetMenuState(info.menu, index as u32, 0x400);
+            if state == u32::MAX || length < 0 || length as usize >= text.len() - 1 {
+                return Err(io::Error::other("native menu item unavailable"));
+            }
+            entries.push((
+                String::from_utf16_lossy(&text[..length as usize]),
+                state & 3 == 0,
+            ));
+        }
+        Ok(Some(entries))
     }
 }
 fn save_png(path: &Path, width: u32, height: u32, bgra: &[u8]) -> io::Result<()> {
