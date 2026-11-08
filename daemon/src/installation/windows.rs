@@ -65,7 +65,6 @@ fn autorun(name: &str, executable: Option<&Path>) -> Result {
     Ok(())
 }
 fn spawn(path: &Path) -> Result {
-    use std::os::windows::process::CommandExt;
     let logs = root()?.join("logs");
     fs::create_dir_all(&logs)?;
     let file = fs::OpenOptions::new()
@@ -75,12 +74,7 @@ fn spawn(path: &Path) -> Result {
             "{}.jsonl",
             path.file_stem().unwrap().to_string_lossy()
         )))?;
-    Command::new(path)
-        .creation_flags(0x08000000)
-        .stdin(Stdio::null())
-        .stdout(file.try_clone()?)
-        .stderr(file)
-        .spawn()?;
+    nddev_systeminfo_native::process::spawn_background(path, &root()?, &file)?;
     Ok(())
 }
 fn binaries(directory: &Path) -> [PathBuf; 2] {

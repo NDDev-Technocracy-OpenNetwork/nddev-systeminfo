@@ -1,5 +1,8 @@
 //! Reproducible source checks, tools and packaging. Run builds on a build host.
 use serde::Deserialize;
+mod clients;
+#[cfg(target_os = "linux")]
+mod debian;
 mod install_test;
 mod linux_ui;
 mod packaging;
@@ -246,7 +249,37 @@ fn generate() -> Result {
     fs::create_dir_all("assets")?;
     fs::write("assets/brand-mask-64.bin", brand_mask()?)?;
     fs::write("extension/resources/brand-symbolic.svg", brand_svg())?;
+    fs::write("daemon/src/config/defaults.rs", rust_defaults()?)?;
     Ok(())
+}
+fn rust_defaults() -> Result<String> {
+    let source = fs::read_to_string("config/default.toml")?;
+    nddev_systeminfo::config::Config::parse(&source)?;
+    let document: toml::Value = toml::from_str(&source)?;
+    let mut result = String::from(
+        "// Generated from config/default.toml. Edit its authoritative TOML, then just generate.\nuse super::{Config, Display, Logging, Sampling, Transport};\n\npub(super) fn load() -> Config {\n    Config {\n",
+    );
+    for (section, fields) in document.as_table().ok_or("default sections missing")? {
+        let mut characters = section.chars();
+        let name = characters
+            .next()
+            .ok_or("empty section")?
+            .to_uppercase()
+            .collect::<String>()
+            + characters.as_str();
+        result.push_str(&format!("        {section}: {name} {{\n"));
+        for (field, value) in fields.as_table().ok_or("default fields missing")? {
+            let literal = if let Some(value) = value.as_str() {
+                format!("{value:?}.into()")
+            } else {
+                value.to_string()
+            };
+            result.push_str(&format!("            {field}: {literal},\n"));
+        }
+        result.push_str("        },\n");
+    }
+    result.push_str("    }\n}\n");
+    Ok(result)
 }
 fn brand_svg() -> String {
     use nddev_opennetwork_design_tokens::BRAND_MARK;
@@ -512,6 +545,9 @@ fn ui_resource() -> Result<String> {
 }
 fn check() -> Result {
     let version = version()?;
+    if fs::read_to_string("daemon/src/config/defaults.rs")? != rust_defaults()? {
+        return Err("compiled defaults drifted; run just generate".into());
+    }
     if fs::read_to_string("extension/resources/ui.json")? != ui_resource()? {
         return Err("native resources drifted; run just generate".into());
     }
@@ -736,7 +772,12 @@ fn run() -> Result {
                 .ok_or("legacy measurement needs the original binary path")?,
         )),
         Some("package") => packaging::package().map(|_| ()),
+        #[cfg(target_os = "linux")]
+        Some("deb") => debian::package(),
+        #[cfg(target_os = "linux")]
+        Some("deb-test") => debian::test(),
         Some("install-test") => install_test::run(),
+        Some("python-live") => clients::python(),
         _ => Err("usage: systeminfo-tools <setup|generate|check|test>".into()),
     }
 }

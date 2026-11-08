@@ -11,6 +11,8 @@ use std::{
     time::{Duration, Instant},
 };
 #[cfg(target_os = "linux")]
+pub mod debian;
+#[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;

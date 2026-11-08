@@ -7,6 +7,7 @@ use std::{
 };
 
 pub const DEFAULT_TOML: &str = include_str!("../../config/default.toml");
+mod defaults;
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -117,7 +118,7 @@ impl Config {
         let _lock = edit_lock(path)?;
         let mut config = match std::fs::read_to_string(path) {
             Ok(text) => Self::parse(&text)?,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Self::parse(DEFAULT_TOML)?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => defaults::load(),
             Err(error) => return Err(error.into()),
         };
         config.set(key, value)?;
@@ -214,7 +215,7 @@ impl Config {
         }
         match std::fs::read_to_string(default_path()?) {
             Ok(text) => Self::parse(&text),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Self::parse(DEFAULT_TOML),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(defaults::load()),
             Err(error) => Err(error.into()),
         }
     }
@@ -356,7 +357,13 @@ mod tests {
     use super::*;
     #[test]
     fn shipped_configuration_is_complete_and_valid() {
-        assert!(Config::parse(DEFAULT_TOML).is_ok());
+        let parsed = Config::parse(DEFAULT_TOML).unwrap();
+        let bundled = defaults::load();
+        bundled.validate().unwrap();
+        assert_eq!(
+            serde_json::to_value(parsed).unwrap(),
+            serde_json::to_value(bundled).unwrap()
+        );
     }
     #[test]
     fn missing_unknown_and_unbounded_settings_are_rejected() {

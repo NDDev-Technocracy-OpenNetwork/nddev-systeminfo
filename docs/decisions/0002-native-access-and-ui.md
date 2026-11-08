@@ -16,6 +16,18 @@ where the OS permits them, repeated creation/drop and shutdown. No unsafe access
 is introduced into NDS's adapter. Device access remains read-only and needs no
 administrator privileges.
 
+Windows presentation lifecycle includes starting and stopping the owned tray and
+provider. Background launch uses a Win32 handle allowlist containing only null
+stdin and the local JSON log. It never inherits a caller's pipes or unrelated
+handles. Rust's corresponding attribute-list interface is still unstable in
+the pinned stable toolchain. The native crate owns the temporary attribute list,
+inheritable duplicates and process/thread handles; the rest of the product uses
+one safe function. Native installation acceptance captures CLI output and must
+finish while the background products remain alive.
+
+References: [Rust CommandExt](https://doc.rust-lang.org/std/os/windows/process/trait.CommandExt.html),
+[Windows handle inheritance](https://learn.microsoft.com/en-us/windows/win32/procthread/inheritance).
+
 ## Presentation options
 
 The default desktop stack is Tauri with React/TypeScript. It supplies one shared

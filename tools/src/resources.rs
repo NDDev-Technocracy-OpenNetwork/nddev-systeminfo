@@ -91,9 +91,14 @@ mod linux {
         });
         fs::create_dir_all(&output)?;
         let mut measurements = Vec::new();
-        for gpu in [false, true] {
-            let directory =
-                std::env::temp_dir().join(format!("si-measure-{}-{gpu}", std::process::id()));
+        let profiles = if legacy.is_some() {
+            vec![(false, false), (true, false)]
+        } else {
+            vec![(false, true), (false, false), (true, false)]
+        };
+        for (gpu, bundled) in profiles {
+            let directory = std::env::temp_dir()
+                .join(format!("si-measure-{}-{gpu}-{bundled}", std::process::id()));
             fs::create_dir(&directory)?;
             let path = directory.join(if legacy.is_some() {
                 "rldyour-sysinfo.sock"
@@ -112,7 +117,9 @@ mod linux {
                 .as_integer()
                 .ok_or("idle interval missing")? as u64;
             fs::write(&config, toml::to_string(&settings)?)?;
-            let log = fs::File::create(output.join(format!("provider-gpu-{gpu}.jsonl")))?;
+            let log = fs::File::create(
+                output.join(format!("provider-gpu-{gpu}-bundled-{bundled}.jsonl")),
+            )?;
             let mut command = Command::new(&isolated);
             if legacy.is_some() {
                 // Interface of the immutable historical release, used only by
@@ -121,11 +128,12 @@ mod linux {
                     .env("XDG_RUNTIME_DIR", &directory)
                     .env("RLDYOUR_SYSINFO_GPU", if gpu { "1" } else { "0" });
             } else {
-                command
-                    .arg("--socket")
-                    .arg(&path)
-                    .arg("--config")
-                    .arg(&config);
+                command.arg("--socket").arg(&path);
+                if bundled {
+                    command.env("XDG_CONFIG_HOME", &directory);
+                } else {
+                    command.arg("--config").arg(&config);
+                }
             }
             let started = Instant::now();
             let child = command.stdout(log.try_clone()?).stderr(log).spawn()?;
@@ -136,7 +144,7 @@ mod linux {
                 if run.child.try_wait()?.is_some() || Instant::now() > ready {
                     return Err("provider did not become ready".into());
                 }
-                thread::sleep(Duration::from_millis(2));
+                thread::sleep(Duration::from_micros(100));
             }
             let startup_ms = started.elapsed().as_secs_f64() * 1000.0;
             let cold = process(pid)?;
@@ -176,7 +184,7 @@ mod linux {
             line.clear();
             BufReader::new(stream).read_line(&mut line)?;
             let _: Value = serde_json::from_str(&line)?;
-            measurements.push(json!({"gpu":gpu,"cold":cold,"first_frame_ms":first_frame_ms,"startup_to_socket_ms":startup_ms,
+            measurements.push(json!({"gpu":gpu,"configuration":if bundled {"bundled"} else if legacy.is_some() {"legacy-env"} else {"file"},"cold":cold,"first_frame_ms":first_frame_ms,"startup_to_socket_ms":startup_ms,
                 "active":active,"active_cpu_ticks_10s":active["cpu_ticks"].as_u64().unwrap()-active_start["cpu_ticks"].as_u64().unwrap(),
                 "after_release":released,"idle_cpu_ticks_10s":idle_end["cpu_ticks"].as_u64().unwrap()-released["cpu_ticks"].as_u64().unwrap(),
                 "reconnect_first_frame_ms":before.elapsed().as_secs_f64()*1000.0}));

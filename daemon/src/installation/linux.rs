@@ -33,10 +33,7 @@ pub(super) fn install(source: &Path, manifest: &Manifest, provider_only: bool) -
     manager(&["show", "--property=Version", "--value"], true)?;
     let masked = units.join(SOCKET).is_symlink()
         && fs::read_link(units.join(SOCKET))? == Path::new("/dev/null");
-    let unit = include_str!("../../../daemon/systemd/rldyour-sysinfod.service").replace(
-        "ExecStart=%h/.local/bin/rldyour-sysinfod",
-        "ExecStart=%h/.local/bin/nddev-systeminfod",
-    );
+    let unit = include_str!("../../../daemon/systemd/rldyour-sysinfod.service");
     for name in ["nddev-systeminfo", "nddev-systeminfod"] {
         copy_file(&source.join("bin").join(name), &bin.join(name), true)?;
     }
