@@ -213,7 +213,8 @@ pub fn unlink_current_executable() -> io::Result<()> {
         .access_mode(0x00010000 | 0x80)
         .share_mode(1 | 2 | 4)
         .custom_flags(0x00200000)
-        .open(path)?;
+        .open(path)
+        .map_err(|error| contextual("open the running image for deletion", error))?;
     if file.metadata()?.file_attributes() & 0x400 != 0 {
         return Err(io::Error::other("installed executable is redirected"));
     }
@@ -230,10 +231,31 @@ pub fn unlink_current_executable() -> io::Result<()> {
         )
     } == 0
     {
-        return Err(io::Error::last_os_error());
+        return Err(contextual(
+            "unlink the running image",
+            io::Error::last_os_error(),
+        ));
     }
     drop(file);
     Ok(())
+}
+#[derive(Debug)]
+struct OperationError {
+    operation: &'static str,
+    source: io::Error,
+}
+impl std::fmt::Display for OperationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.operation, self.source)
+    }
+}
+impl std::error::Error for OperationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+fn contextual(operation: &'static str, source: io::Error) -> io::Error {
+    io::Error::new(source.kind(), OperationError { operation, source })
 }
 #[cfg(test)]
 mod tests {

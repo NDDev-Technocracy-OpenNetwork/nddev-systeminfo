@@ -146,6 +146,22 @@ pub fn popup_entries() -> io::Result<Option<Vec<(String, bool)>>> {
         Ok(Some(entries))
     }
 }
+
+/// Deliver End/Enter only to this process's native popup, never to another
+/// application's foreground window. The caller must observe the real command.
+pub fn choose_last_action() -> io::Result<()> {
+    let window = popup_window(None).ok_or_else(|| io::Error::other("owned popup missing"))?;
+    // SAFETY: integer keyboard messages target the owned borrowed popup HWND;
+    // no global input injection, pointers or foreign application are involved.
+    for key in [0x23usize, 0x0d] {
+        if unsafe { PostMessageW(window, 0x100, key, 1) } == 0
+            || unsafe { PostMessageW(window, 0x101, key, 0xc0000001) } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
 fn save_png(path: &Path, width: u32, height: u32, bgra: &[u8]) -> io::Result<()> {
     // PNG's uncompressed DEFLATE blocks keep this test-only encoder independent
     // of a resident image/graphics library. Every row uses PNG filter type zero.

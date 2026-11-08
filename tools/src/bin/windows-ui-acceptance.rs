@@ -6,7 +6,7 @@ mod desktop {
         fs,
         path::Path,
         process::{Child, Command, Stdio},
-        sync::{Arc, Mutex},
+        sync::{Arc, Mutex, mpsc},
         thread,
         time::{Duration, Instant},
     };
@@ -82,6 +82,7 @@ mod desktop {
             let offline = nddev_systeminfo::windows_ui::native_model(&config, None);
             let mut reader = if code == "zh" { client.take() } else { None };
             let provider = provider.clone();
+            let (command, observed) = mpsc::sync_channel(1);
             let photographer = thread::spawn(move || {
                 let _close = Close(capture.clone());
                 let deadline = Instant::now() + Duration::from_secs(10);
@@ -120,16 +121,24 @@ mod desktop {
                     }
                     assert!(tray::acceptance::capture_popup(&offline_path).unwrap());
                 }
+                tray::acceptance::choose_last_action().unwrap();
+                assert_eq!(observed.recv_timeout(Duration::from_secs(2)).unwrap(), 3);
             });
             proxy.open_menu();
-            tray.run(|_, _| {}).unwrap();
+            tray.run(|event, proxy| {
+                if let tray::Event::Command(id) = event {
+                    command.send(id).unwrap();
+                    proxy.close();
+                }
+            })
+            .unwrap();
             photographer.join().unwrap();
             let text = serde_json::to_string(&sample).unwrap();
             tray::copy_text(&text).unwrap();
         }
         fs::write(
             artifacts.join("result.json"),
-            "{\"native_popup\":true,\"real_provider\":true,\"open_menu_disconnect_clears_all_12\":true,\"copy_disabled_offline\":true,\"locales\":5,\"themes\":4}\n",
+            "{\"native_popup\":true,\"real_provider\":true,\"native_keyboard_quit\":true,\"open_menu_disconnect_clears_all_12\":true,\"copy_disabled_offline\":true,\"locales\":5,\"themes\":4}\n",
         )
         .unwrap();
     }

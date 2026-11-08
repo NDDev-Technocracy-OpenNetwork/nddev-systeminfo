@@ -208,7 +208,10 @@ pub(super) fn uninstall() -> Result {
         }
         nddev_systeminfo_native::process::unlink_current_executable()?;
     }
-    fs::remove_dir_all(versions)?;
+    fs::remove_dir_all(versions).map_err(|source| InstallError::Operation {
+        operation: "remove the owned Windows version directories",
+        source,
+    })?;
     remove_file(&state_dir()?.join("current.txt"))?;
     remove_file(&state_dir()?.join("manifest.toml"))?;
     Ok(())

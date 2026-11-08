@@ -37,6 +37,12 @@ pub enum InstallError {
     Invalid(&'static str),
     #[error("native service command failed: {0}")]
     Manager(String),
+    #[error("{operation}: {source}")]
+    Operation {
+        operation: &'static str,
+        #[source]
+        source: io::Error,
+    },
 }
 type Result<T = ()> = std::result::Result<T, InstallError>;
 #[derive(Deserialize, Serialize)]
