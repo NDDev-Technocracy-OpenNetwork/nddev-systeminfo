@@ -23,6 +23,11 @@ struct MetricSample: Codable, Sendable {
                 throw DecodingError.dataCorruptedError(forKey: .temp, in: values, debugDescription: "Invalid metric")
             }
         }
+        func encode(to encoder: any Encoder) throws {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(usage, forKey: .usage)
+            try values.encode(temp, forKey: .temp)
+        }
     }
     struct MEMORY: Codable, Sendable {
         let used: Double?
@@ -37,6 +42,11 @@ struct MetricSample: Codable, Sendable {
             if let value = swap, !(value.isFinite && (0...100).contains(value)) {
                 throw DecodingError.dataCorruptedError(forKey: .swap, in: values, debugDescription: "Invalid metric")
             }
+        }
+        func encode(to encoder: any Encoder) throws {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(used, forKey: .used)
+            try values.encode(swap, forKey: .swap)
         }
     }
     struct GPU: Codable, Sendable {
@@ -58,6 +68,12 @@ struct MetricSample: Codable, Sendable {
                 throw DecodingError.dataCorruptedError(forKey: .temp, in: values, debugDescription: "Invalid metric")
             }
         }
+        func encode(to encoder: any Encoder) throws {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(usage, forKey: .usage)
+            try values.encode(memory, forKey: .memory)
+            try values.encode(temp, forKey: .temp)
+        }
     }
     struct DISK: Codable, Sendable {
         let read: UInt64?
@@ -72,6 +88,12 @@ struct MetricSample: Codable, Sendable {
                 throw DecodingError.dataCorruptedError(forKey: .temp, in: values, debugDescription: "Invalid metric")
             }
         }
+        func encode(to encoder: any Encoder) throws {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(read, forKey: .read)
+            try values.encode(write, forKey: .write)
+            try values.encode(temp, forKey: .temp)
+        }
     }
     struct NET: Codable, Sendable {
         let rx: UInt64?
@@ -80,6 +102,11 @@ struct MetricSample: Codable, Sendable {
             let values = try decoder.container(keyedBy: CodingKeys.self)
             rx = try values.decode(UInt64?.self, forKey: .rx)
             tx = try values.decode(UInt64?.self, forKey: .tx)
+        }
+        func encode(to encoder: any Encoder) throws {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(rx, forKey: .rx)
+            try values.encode(tx, forKey: .tx)
         }
     }
     let v: Int

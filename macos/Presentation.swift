@@ -20,7 +20,7 @@ struct UIResource: Decodable, Sendable {
     }
     struct Metrics: Decodable, Sendable {
         let gap: Double; let small: Double; let padding: Double; let radius: Double
-        let brand: Double; let minWidth: Double; let control: Double; let border: Double
+        let brand: Double; let icon: Double; let minWidth: Double; let control: Double; let border: Double
     }
     struct Brand: Decodable, Sendable { let viewBox: [Double]; let paths: [String] }
     struct Typography: Decodable, Sendable { let body: Double; let label: Double }
