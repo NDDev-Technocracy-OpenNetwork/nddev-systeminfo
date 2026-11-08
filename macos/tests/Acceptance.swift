@@ -64,10 +64,10 @@ func runNativeAcceptance(_ app: AppDelegate) async throws {
 private enum TestFailure: Error { case timeout, missingSetting, screenshot }
 @MainActor
 private func until(_ predicate: () -> Bool) async throws {
-    let deadline = ContinuousClock.now + .seconds(15)
+    let deadline = ProcessInfo.processInfo.systemUptime + 15
     while !predicate() {
-        guard ContinuousClock.now < deadline else { throw TestFailure.timeout }
-        try await Task.sleep(for: .milliseconds(20))
+        guard ProcessInfo.processInfo.systemUptime < deadline else { throw TestFailure.timeout }
+        try await Task.sleep(nanoseconds: 20_000_000)
     }
 }
 @MainActor
