@@ -43,11 +43,42 @@ pub(super) fn python() -> Result {
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    let status = Command::new("python")
-        .args(["python/tests/live.py"])
-        .arg(socket)
-        .env("PYTHONPATH", fs::canonicalize("python/src")?)
-        .status()?;
+    let wheels = if std::path::Path::new("python/dist").exists() {
+        crate::files(std::path::Path::new("python/dist"))?
+            .into_iter()
+            .filter(|file| file.extension().is_some_and(|extension| extension == "whl"))
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let mut python = if wheels.is_empty() {
+        let mut command = Command::new("python");
+        command.env("PYTHONPATH", fs::canonicalize("python/src")?);
+        command
+    } else {
+        if wheels.len() != 1 {
+            return Err("Python wheel is ambiguous".into());
+        }
+        let listing = Command::new("unzip").arg("-Z1").arg(&wheels[0]).output()?;
+        let listing = String::from_utf8(listing.stdout)?;
+        for required in [
+            "rldyour_sysinfo/__init__.py",
+            "/licenses/LICENSE",
+            "/licenses/NOTICE",
+        ] {
+            if !listing.lines().any(|name| name.ends_with(required)) {
+                return Err(format!("Python distribution lacks {required}").into());
+            }
+        }
+        let mut command = Command::new("uv");
+        command
+            .args(["run", "--no-project", "--with"])
+            .arg(&wheels[0])
+            .arg("python")
+            .env_remove("PYTHONPATH");
+        command
+    };
+    let status = python.arg("python/tests/live.py").arg(socket).status()?;
     if !status.success() {
         return Err("real Python SDK acceptance failed".into());
     }

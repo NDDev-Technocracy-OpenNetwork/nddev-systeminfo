@@ -25,6 +25,15 @@ fn paths() -> Result<(PathBuf, PathBuf, PathBuf)> {
     Ok((home.join(".local/bin"), units, extensions))
 }
 pub(super) fn install(source: &Path, manifest: &Manifest, provider_only: bool) -> Result {
+    if ["nddev-systeminfo", "rldyour-sysinfo"].iter().any(|name| {
+        Path::new("/var/lib/dpkg/info")
+            .join(format!("{name}.list"))
+            .is_file()
+    }) {
+        return Err(InstallError::Invalid(
+            "a system package owns the provider; use its package manager",
+        ));
+    }
     let (bin, units, extension) = paths()?;
     let existing = units.join(SOCKET).symlink_metadata().is_ok()
         || manager(&["show", SOCKET, "--property=LoadState", "--value"], false)
@@ -33,11 +42,27 @@ pub(super) fn install(source: &Path, manifest: &Manifest, provider_only: bool) -
     manager(&["show", "--property=Version", "--value"], true)?;
     let masked = units.join(SOCKET).is_symlink()
         && fs::read_link(units.join(SOCKET))? == Path::new("/dev/null");
+    let service_masked = units.join(SERVICE).is_symlink()
+        && fs::read_link(units.join(SERVICE))? == Path::new("/dev/null");
+    let fragment = manager(
+        &["show", SERVICE, "--property=FragmentPath", "--value"],
+        false,
+    )?;
+    let fragment = String::from_utf8_lossy(&fragment.stdout);
+    let fragment = fragment.trim();
+    if !fragment.is_empty() && fragment != "/dev/null" && Path::new(fragment) != units.join(SERVICE)
+    {
+        return Err(InstallError::Invalid(
+            "another service installation owns the provider",
+        ));
+    }
     let unit = include_str!("../../../daemon/systemd/rldyour-sysinfod.service");
     for name in ["nddev-systeminfo", "nddev-systeminfod"] {
         copy_file(&source.join("bin").join(name), &bin.join(name), true)?;
     }
-    atomic(&units.join(SERVICE), unit.as_bytes(), false)?;
+    if !service_masked {
+        atomic(&units.join(SERVICE), unit.as_bytes(), false)?;
+    }
     if !masked {
         atomic(
             &units.join(SOCKET),
@@ -75,9 +100,9 @@ pub(super) fn install(source: &Path, manifest: &Manifest, provider_only: bool) -
         }
     }
     manager(&["daemon-reload"], true)?;
-    if !existing {
+    if !existing && !service_masked {
         manager(&["enable", "--now", SOCKET], true)?;
-    } else {
+    } else if !service_masked {
         manager(&["try-restart", SERVICE], true)?;
     }
     receipt(manifest)?;

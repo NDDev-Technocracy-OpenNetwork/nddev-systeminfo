@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.2 — 2026-11-08
+
+- Publish the independent NDDev Systeminfo product in OpenNetwork, preserving
+  repository history, historical releases and the local v1 consumer contract.
+- Add the standalone Rust CLI, complete typed TOML, atomic field updates and
+  migration of explicit legacy preferences.
+- Use the released public OpenNetwork design system in native GNOME, AppKit and
+  Windows interfaces, with five languages, RTL, OS accessibility and immediate
+  clearing of disconnected readings.
+- Isolate native ownership and FFI, replace the macOS hardware bridge with
+  read-only Rust access and exercise native handle and socket lifecycles.
+- Disable GPU collection by default, release collectors when demand ends, reuse
+  frame buffers and keep idle listeners free of sampling timers.
+- Add native user installation, upgrade and removal with preserved preferences
+  and disabled state, plus canonical and transitional Debian packages.
+- Qualify actual interfaces, native startup managers, CLI and NDS adapter use.
+  Publish qualified artifacts with provenance and byte verification, then sign APT.
+
 ## 0.3.1 — 2026-10-07
 
 - Enable the Debian user socket on fresh installation and preserve explicit

@@ -1,238 +1,176 @@
 # NDDev Systeminfo
 
-[![CI](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo/actions/workflows/ci.yml/badge.svg)](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo/actions/workflows/ci.yml)
+[![CI](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo/actions/workflows/ci.yml)
 
-Low-overhead live system metrics from one Rust daemon on Linux, macOS and
-Windows. Linux has a GNOME Shell indicator, macOS has a native menu bar client,
-and every platform exposes the same versioned local JSON protocol.
+Independent, read-only system information for Linux, macOS and Windows. One Rust
+provider serves the CLI, native desktop interface and optional NDS consumers.
+It works without an NDS installation, account or credentials.
 
-The protocol also has a dependency-free Python client published as
-`rldyour-sysinfo` on PyPI. The Rust daemon is published as
-`rldyour-sysinfod` on crates.io.
+| Platform | Interface | Collection |
+| --- | --- | --- |
+| Linux | GNOME Shell indicator and native preferences | procfs, sysfs, optional NVIDIA NVML |
+| macOS | AppKit menu-bar application | Mach, BSD, read-only IOKit/SMC/HID |
+| Windows | Native notification icon and menu | selective system counters, optional NVIDIA NVML |
 
-Current stable release: **0.3.1**.
+The interface supports English, Russian, Kazakh, Arabic and Chinese, RTL, four
+OpenNetwork themes and OS accessibility preferences. Native controls retain
+platform appearance. Shared brand geometry, colors and metrics come from the
+public Apache-2.0 [OpenNetwork design system](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-opennetwork-design-system).
 
-![The indicator in the top bar](docs/panel.png)
+CPU, memory, swap, GPU, temperatures, disk and network rates use the same
+[versioned local contract](docs/protocol.md). Unavailable readings are `null`;
+disconnected interfaces clear their numbers immediately.
 
-## Why it is two pieces
+## Install
 
-Platform UI processes stay deliberately thin. Collection, rate calculation and
-hardware access live in the Rust daemon; clients only decode one JSON line and
-render it. Linux and macOS use Unix domain sockets, while Windows uses its
-native AF_UNIX implementation available since Windows 10.
+Download the matching qualified archive and `SHA256SUMS` from
+[Releases](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo/releases).
+Verify the archive against the checksum file, extract it and open its directory.
+Archives contain `bin/`, native presentation, the integrity manifest and notices.
 
-The split is not only a workaround. Under Wayland the shell cannot be restarted
-without logging out, so any change to extension code costs a session. Keeping
-the extension thin and stable, and putting everything that evolves into a
-daemon that restarts in milliseconds, is what makes the thing maintainable.
+Linux and macOS:
 
-### What the design deliberately avoids
-
-- **No async runtime in Rust.** The daemon owns one sampling thread and one
-  accept thread. Native hardware libraries can also create their own threads.
-- **No D-Bus stack.** `zbus` spawns a thread per connection and its own
-  executor. For pushing under two hundred bytes a tick, a plain `UnixListener`
-  from the standard library costs nothing and depends on nothing.
-- **No process scanning.** Linux reads `/proc` and `/sys` directly. macOS uses
-  Mach, BSD, IOKit, AppleSMC and IOHID. Windows refreshes system, component and network
-  counters without constructing a process list.
-- **No polling in the shell.** The cadence belongs to the daemon; the extension
-  only waits on the next line. It runs no timer while connected, which also
-  removes the most common cause of leaks in shell extensions.
-
-## Cost
-
-The server admits at most 32 clients, keeps at most 32 accepted connections
-queued, reads at most 256 handshake bytes and waits at most 250 ms total.
-Writes are nonblocking: a reader with a full buffer is disconnected. One
-shared sampling clock caps hardware reads at twice a second even during
-connection churn. When no clients are attached, no samples are collected.
-The JSON buffer is reused; native APIs may allocate temporary objects.
-
-The macOS client uses dispatch socket readiness instead of a blocked reader
-thread, and every client bounds incoming frames to 4096 bytes.
-
-Historical Linux measurements on the development machine, resident private
-memory (`Pss`):
-
-| Configuration | Pss | Threads | Binary |
-|---|---|---|---|
-| Daemon without GPU metrics | ~0.6 MB | 2 | 375 KB |
-| Daemon with NVIDIA metrics | ~19.6 MB | 3 | 484 KB |
-
-The entire difference is NVML. The proprietary NVIDIA driver publishes no
-utilisation or temperature through `procfs` or `sysfs` and binds no hwmon node,
-so NVML is the only interface that answers, and it maps about nineteen
-megabytes of driver-side state. Set `RLDYOUR_SYSINFO_GPU=0` in the service
-environment, or build with `--no-default-features`, and that cost disappears
-along with the GPU readings.
-
-## Platform support
-
-| Metric | Linux | macOS | Windows |
-|---|---|---|---|
-| CPU load | `/proc/stat` | Mach host statistics | Windows system counters |
-| CPU temperature | hwmon | AppleSMC / IOHID | hardware component provider |
-| Memory and swap | `/proc/meminfo` | Mach VM statistics | Windows memory counters |
-| GPU load, memory, temperature | NVIDIA NVML | IOAccelerator and AppleSMC / IOHID | NVIDIA NVML |
-| Disk throughput | `/proc/diskstats` | IOKit storage statistics | Windows volume counters |
-| Network throughput | `/proc/net/dev` | BSD interface counters | Windows network counters |
-
-Throughput counts bytes per second on interfaces and devices the OS considers
-physical: Linux follows real `/sys` device nodes, macOS counts up `en*`
-interfaces, and Windows excludes the loopback, tunnel, VPN, and hypervisor
-adapters it can identify by name.
-
-Unsupported or unavailable hardware readings are always `null`. The daemon
-does not substitute estimates. NVIDIA metrics can be disabled at build time
-with `--no-default-features`.
-
-## Install on Linux
-
-Requires Rust 1.95 or newer and GNOME Shell 46 (Ubuntu 24.04 LTS) through 50.
-
-Ubuntu amd64 can install the signed package repository:
-
-```sh
-curl -fsSL https://nddev-technocracy-opennetwork.github.io/nddev-systeminfo/apt/rldyour-sysinfo.asc \
-  | sudo tee /usr/share/keyrings/rldyour-sysinfo.asc >/dev/null
-echo "deb [arch=amd64 signed-by=/usr/share/keyrings/rldyour-sysinfo.asc] https://nddev-technocracy-opennetwork.github.io/nddev-systeminfo/apt stable main" \
-  | sudo tee /etc/apt/sources.list.d/rldyour-sysinfo.list
-sudo apt update
-sudo apt install rldyour-sysinfo
+```console
+./bin/nddev-systeminfo install
 ```
 
-The package installs the Rust daemon and its socket-activated user service.
-Install the GNOME indicator from the matching GitHub release asset.
-
-```sh
-./install.sh
-```
-
-This builds the daemon into `~/.local/bin`, installs a socket-activated user
-service, and copies the extension into place. Nothing needs root.
-
-The daemon starts on the first connection and stops again thirty seconds after
-the last client disconnects, so it consumes nothing while the extension is off.
-
-Because Wayland cannot restart the shell in place, log out and back in, then:
-
-```sh
-gnome-extensions enable rldyour-sysinfo@nddev-opennetwork
-```
-
-To remove everything: `./uninstall.sh`.
-
-## Install on macOS
-
-Requires macOS 12 or newer, Rust 1.95 or newer and the Swift 6 toolchain shipped
-with Xcode Command Line Tools.
-
-```sh
-./install-macos.sh
-```
-
-The installer builds the same Rust daemon with native Mach, BSD, IOKit and SMC
-readers, creates a small native menu bar app, and registers both with per-user
-LaunchAgents. launchd owns the socket and starts the daemon on the first
-connection — the same socket-activation model systemd provides on Linux — so
-it exits when nobody is watching. It does not install or invoke a third-party
-monitor and needs no administrator privileges. Apple GPU load comes from
-IOAccelerator performance statistics; CPU and GPU temperatures come from
-read-only AppleSMC sensors with an IOHID temperature fallback on supported
-Apple silicon models.
-
-Remove it with `./uninstall-macos.sh`.
-
-## Install on Windows
-
-Requires Windows 10 or newer and Rust 1.95 or newer. Run PowerShell as the
-current desktop user:
+Windows PowerShell:
 
 ```powershell
-.\install-windows.ps1
+.\bin\nddev-systeminfo.exe install
 ```
 
-This installs the daemon under `%LOCALAPPDATA%\rldyour-sysinfo` and registers
-it in the `Run` key, so it starts at login with no console window. Remove it
-with `.\uninstall-windows.ps1`. The Windows daemon publishes the same
-protocol; a native tray client is not part of the 0.2 series.
+Installation uses the current user's directories and the native startup manager.
+Use `install --provider-only` when the service and CLI are the intended interface.
+Linux's GNOME extension becomes available through the Extensions application;
+an existing Wayland session can require the next login to discover new code.
 
-## Configuration
+Linux requires a systemd user manager; the desktop interface targets GNOME 46–50.
+macOS requires 12 or later and supports Apple silicon and Intel. macOS archives
+carry an ad-hoc signature; Developer ID signing and notarization are not configured.
+Windows releases target x64 Windows 10/11, with the C runtime linked statically.
+Windows registers a per-user maintenance package with Windows Installer; removal
+can also be started from Installed apps. Its CLI hands removal to the OS and
+exits before the cached cleanup action deletes the installed executables.
 
-Open the extension's preferences for what most people want to change:
+To remove the user installation, run its CLI:
 
-- **Interval** — a cadence preset: Economy (10 s), Standard (5 s), Fast (2 s)
-  or Realtime, which puts the daemon on half-second ticks. The indicator asks
-  the daemon for this cadence when it connects, and the daemon serves the
-  fastest any connected client requested. Any whole number from 0 (realtime)
-  to 60 seconds can also be set directly on the `interval` key.
-- **Panel** — which of processor, memory, graphics and network appear in the
-  top bar, and whether temperatures are shown beside them. The dropdown always
-  lists everything regardless.
-
-The daemon accepts these environment variables. On Linux they can be placed in
-an `[Service]` drop-in under `~/.config/systemd/user/rldyour-sysinfod.service.d/`;
-on macOS, add them to the
-daemon LaunchAgent's `EnvironmentVariables` dictionary.
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `RLDYOUR_SYSINFO_INTERVAL` | `5` | Cadence when no client asks for one; `0` selects realtime (500 ms) |
-| `RLDYOUR_SYSINFO_GPU` | unset | Set to `0` to skip NVML entirely |
-
-## Protocol
-
-A client may open with a single line stating the cadence it wants — `0` is
-realtime (500 ms ticks), `1`–`60` a whole number of seconds — which the daemon
-honours and otherwise ignores:
-
-```json
-{"interval":5}
+```console
+nddev-systeminfo uninstall
 ```
 
-The daemon then sends one newline-terminated JSON object per tick. Every metric is always present;
-one the host cannot supply is `null`, so a client never distinguishes "missing"
-from "unsupported". `v` is incremented only on an incompatible change.
+The user configuration is preserved. Installation and service operations preserve
+explicit disablement. A complete release manifest is verified before copying files.
 
-```json
-{"v":1,"cpu":{"usage":55.4,"temp":88.6},"memory":{"used":54.7,"swap":4.2},
- "gpu":{"usage":7.0,"memory":9.6,"temp":69.0},
- "disk":{"read":10628,"write":3789480,"temp":47.8},
- "net":{"rx":18360,"tx":342578}}
+### APT
+
+The signed repository is
+`https://nddev-technocracy-opennetwork.github.io/nddev-systeminfo/apt`.
+After installing its public key in `/usr/share/keyrings/rldyour-sysinfo.asc`, add:
+
+```console
+curl --fail --location https://nddev-technocracy-opennetwork.github.io/nddev-systeminfo/apt/rldyour-sysinfo.asc --output rldyour-sysinfo.asc
+gpg --show-keys --fingerprint rldyour-sysinfo.asc
+sudo install -m 644 rldyour-sysinfo.asc /usr/share/keyrings/rldyour-sysinfo.asc
 ```
 
-Percentages are per cent, temperatures are degrees Celsius, disk and network
-figures are bytes per second. [`docs/protocol.md`](docs/protocol.md) is the
-full specification every client implements — transport locations, handshake,
-field meanings, and lifecycle.
+The public key fingerprint is `3962 D52A 20C4 C41E 1F0F 79F7 1921 782F 1736 B4DF`.
 
-Python clients can use `pip install rldyour-sysinfo`; the command
-`rldyour-sysinfo --once` prints a single live sample from the local daemon.
-
-## Checks
-
-```sh
-./scripts/check-extension.sh                      # what CI runs for the extension
-cd daemon && cargo test && cargo clippy --all-targets --all-features -- -D warnings
-cd extension && gjs -m tests/smoke.js             # needs the daemon reachable
-swiftc -swift-version 6 -parse-as-library -typecheck macos/*.swift       # macOS menu client
+```text
+deb [arch=amd64 signed-by=/usr/share/keyrings/rldyour-sysinfo.asc] https://nddev-technocracy-opennetwork.github.io/nddev-systeminfo/apt stable main
 ```
 
-`scripts/check-extension.sh` covers syntax, metadata, the settings keys the code
-actually reads, process isolation between the shell and preferences processes,
-and deprecated modules. It needs no running shell, which matters because
-Wayland gives no way to reload extension code without a new login.
+Install `nddev-systeminfo` through APT. Existing `rldyour-sysinfo` installations
+upgrade through a transitional package. APT owns the system installation;
+the portable installer owns a user installation. Select one provider owner.
+The portable installer refuses an existing system package or foreign service
+owner. The public key, repository label and user-unit identities preserve the existing
+APT and socket trust state during the product rename.
 
-[`docs/quality.md`](docs/quality.md) records the resource limits, module
-boundaries, platform checks and primary references behind the implementation.
+## Configure and use
 
-## Licence
+All defaults live in [config/default.toml](config/default.toml). A user file is
+complete, typed TOML; unknown, missing and out-of-range fields are rejected.
+The provider starts with GPU collection disabled and a five-second cadence.
+Hardware libraries are loaded only when needed.
 
-Current source: Apache-2.0, with [LICENSE](LICENSE) and [NOTICE](NOTICE).
-Published older tags and artifacts keep their original licenses.
+```console
+nddev-systeminfo config path
+nddev-systeminfo config init
+nddev-systeminfo config set display.locale ru
+nddev-systeminfo config set sampling.interval_seconds 0
+nddev-systeminfo sample
+nddev-systeminfo watch
+nddev-systeminfo schema
+```
 
-Low-level macOS API precedents and dependency licenses are recorded in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Native presentation consumes
-only the public OpenNetwork design package; its source pin is in
-[design-system.toml](design-system.toml).
+`0` selects realtime, capped at 500 ms. Field edits are atomic and serialized
+across processes. UI preferences and CLI use the same file. Explicit legacy
+values, including realtime and false toggles, migrate without replacing an
+existing configuration.
+
+Cadence and presentation changes reach connected interfaces. To change provider
+collection, save the setting and apply it through the native manager:
+
+```console
+nddev-systeminfo config set sampling.gpu true
+nddev-systeminfo service apply
+nddev-systeminfo service status
+```
+
+`service` also supports `start`, `stop`, `enable`, `disable` and `restart`.
+Configuration follows XDG on Linux, Application Support on macOS and LocalAppData
+on Windows. Product settings use TOML; OS path and locale conventions remain native.
+
+## Resource behavior
+
+One demand-driven sampler serves all clients at the fastest requested cadence.
+Frames, admission, buffers and deadlines are bounded. Without clients, sampling
+stops and the collector releases its files, native handles and GPU library after
+the configured idle period. Socket-activated Linux/macOS providers exit then;
+the standalone/Windows listener blocks without a polling timer.
+
+A release-build comparison on one Linux host used separate executable copies,
+realtime demand, ten seconds of active measurement and ten seconds of idle CPU
+measurement after resource release:
+
+| Provider profile | Active PSS | PSS after release | Threads |
+| --- | --- | --- | --- |
+| 0.3.1, GPU explicitly disabled | about 0.74 MiB | about 0.74 MiB | 2 |
+| 0.3.2, GPU disabled | about 1 MiB | about 1 MiB | 2 |
+| 0.3.1, GPU enabled | about 24.1 MiB | about 24.1 MiB | 3 |
+| 0.3.2, GPU enabled | about 24.4 MiB | about 5 MiB | 3 |
+
+The expanded configuration, diagnostics and contracts have a measurable cost
+against the older GPU-disabled provider. Disabling GPU by default and releasing
+its collector remove the much larger driver cost. Idle measurements recorded no
+additional CPU ticks within their resolution. These Linux measurements describe
+that run; they do not substitute for macOS footprint or Windows working-set data.
+
+## NDS and clients
+
+The existing v1 endpoint identities are retained. NDS's separately owned adapter
+reads the same local stream; it does not duplicate hardware collection. The public
+NDS adapter's real-provider acceptance test has read this implementation successfully.
+Consumers can integrate the [JSON Schema](contracts/snapshot-v1.schema.json), the
+Rust contract/client or the dependency-free Python SDK in [python/](python/).
+
+The Python package/import identity remains `rldyour-sysinfo` / `rldyour_sysinfo`.
+Published historical versions and their licenses remain immutable.
+
+## Build and verify
+
+The repository pins Rust, dependencies, development tools and design resources.
+On a build host, `just setup` prepares checksum-verified tools; `just check` reads
+source without compiling; `just test` exercises real providers; `just verify`
+adds the release build. `just generate` updates derived resources from their homes.
+The macOS frontend additionally requires Swift 6 and AppKit.
+
+`systeminfo-tools package` creates the native distribution; `deb` creates the
+Debian packages. Native lifecycle acceptance runs on disposable CI accounts.
+`ui-linux` and `ui-windows` exercise real OS presentation and capture its output.
+See [quality](docs/quality.md), [native presentation](docs/native-ui.md) and
+[delivery](docs/delivery.md) for scope and evidence requirements.
+
+Current source is Apache-2.0 with [NOTICE](NOTICE) and
+[third-party notices](THIRD_PARTY_NOTICES.md).
