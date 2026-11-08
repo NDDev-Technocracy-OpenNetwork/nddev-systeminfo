@@ -7,12 +7,17 @@ on:
         description: Existing verified release tag to publish
         required: true
         type: string
-  # This workflow runs from the default branch, which the github-pages
-  # environment allows. A tag push itself is intentionally not a deployable
-  # environment ref. Build only the successfully released commit below.
-  workflow_run:
-    workflows: [Release]
-    types: [completed]
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      expected_commit:
+        required: true
+        type: string
+    secrets:
+      APT_SIGNING_KEY:
+        required: true
 
 permissions:
   contents: read
@@ -25,11 +30,6 @@ concurrency:
 
 jobs:
   publish:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       startsWith(github.event.workflow_run.head_branch, 'v'))
     runs-on: ubuntu-26.04
     environment:
       name: github-pages
@@ -40,7 +40,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
@@ -48,19 +48,24 @@ jobs:
           printf 'tag=%s\n' "${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ steps.release.outputs.tag }}
-      - name: Verify the released source
+          persist-credentials: false
+      - name: Download the qualified Debian artifact
         env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          EXPECTED_COMMIT: ${{ github.event.workflow_run.head_sha }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
         run: |
-          ./scripts/check-version.sh "${RELEASE_TAG}"
+          set -euo pipefail
           if [[ -n "${EXPECTED_COMMIT}" ]]; then
-            test "$(git rev-parse HEAD)" = "${EXPECTED_COMMIT}"
+            test "$(gh api "repos/${GH_REPO}/commits/${RELEASE_TAG}" --jq .sha)" = "${EXPECTED_COMMIT}"
           fi
+          mkdir -p released
+          gh release download "${RELEASE_TAG}" --pattern '*_amd64.deb' --pattern SHA256SUMS --dir released
+          (cd released && sha256sum --check --ignore-missing SHA256SUMS)
+          test "$(find released -name '*.deb' | wc -l)" -eq 1
+          test "$(dpkg-deb --field released/*.deb Version)" = "${RELEASE_TAG#v}"
       - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y apt-utils dpkg-dev
-      - name: Build daemon
-        run: cargo build --release --all-features --locked --manifest-path daemon/Cargo.toml
       - name: Build signed repository
         env:
           APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
@@ -68,7 +73,7 @@ jobs:
           set -euo pipefail
           umask 022
           mkdir -p site/apt/pool/main/r/rldyour-sysinfo site/apt/dists/stable/main/binary-amd64
-          scripts/build-deb.sh daemon/target/release/rldyour-sysinfod site/apt/pool/main/r/rldyour-sysinfo
+          install -m644 released/*.deb site/apt/pool/main/r/rldyour-sysinfo/
           cd site/apt
           dpkg-scanpackages --arch amd64 pool > dists/stable/main/binary-amd64/Packages
           gzip -9 -k dists/stable/main/binary-amd64/Packages

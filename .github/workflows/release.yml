@@ -27,14 +27,16 @@ jobs:
       - run: ./scripts/check-extension.sh
       - run: cargo test --all-features --locked --manifest-path daemon/Cargo.toml
       - run: cargo build --release --all-features --locked --manifest-path daemon/Cargo.toml
+      - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y dpkg-dev
       - name: Package Linux
         shell: bash
         run: |
           version="${GITHUB_REF_NAME#v}"
           mkdir -p dist/stage/systemd
-          install -m755 daemon/target/release/rldyour-sysinfod dist/stage/rldyour-sysinfod
+          install -m755 target/release/nddev-systeminfod dist/stage/rldyour-sysinfod
           install -m644 daemon/systemd/* dist/stage/systemd/
           install -m644 LICENSE CHANGELOG.md THIRD_PARTY_NOTICES.md dist/stage/
+          ./scripts/build-deb.sh target/release/nddev-systeminfod dist
           tar -czf "dist/rldyour-sysinfo-${version}-x86_64-linux.tar.gz" -C dist/stage .
           cp -r extension dist/extension
           rm -rf dist/extension/tests
@@ -70,7 +72,7 @@ jobs:
           /usr/libexec/PlistBuddy -c 'Add :CFBundleName string rldyour-sysinfo' "${app}/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c 'Add :LSUIElement bool true' "${app}/Contents/Info.plist"
           codesign --force --sign - "${app}"
-          install -m755 daemon/target/release/rldyour-sysinfod dist/stage/prebuilt/
+          install -m755 target/release/nddev-systeminfod dist/stage/prebuilt/
           install -m644 macos/*.plist dist/stage/macos/
           install -m755 install-macos.sh uninstall-macos.sh dist/stage/
           install -m644 LICENSE CHANGELOG.md THIRD_PARTY_NOTICES.md dist/stage/
@@ -93,7 +95,7 @@ jobs:
         run: |
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
           New-Item -ItemType Directory -Force dist/stage | Out-Null
-          Copy-Item daemon/target/release/rldyour-sysinfod.exe, install-windows.ps1, uninstall-windows.ps1, LICENSE, CHANGELOG.md, THIRD_PARTY_NOTICES.md dist/stage/
+          Copy-Item target/release/nddev-systeminfod.exe, install-windows.ps1, uninstall-windows.ps1, LICENSE, CHANGELOG.md, THIRD_PARTY_NOTICES.md dist/stage/
           Compress-Archive -Path dist/stage/* -DestinationPath "dist/rldyour-sysinfo-$version-x86_64-windows.zip"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -132,3 +134,16 @@ jobs:
         run: |
           (cd dist && sha256sum -- ./* > SHA256SUMS)
           gh release create "${GITHUB_REF_NAME}" --verify-tag --title "${GITHUB_REF_NAME}" --generate-notes -- dist/*
+
+  apt:
+    needs: publish
+    uses: ./.github/workflows/apt-pages.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    with:
+      tag: ${{ github.ref_name }}
+      expected_commit: ${{ github.sha }}
+    secrets:
+      APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}

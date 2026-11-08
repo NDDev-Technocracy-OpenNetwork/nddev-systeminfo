@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nddev.ai/schemas/systeminfo/snapshot-v1.json",
+  "title": "NDDev Systeminfo snapshot v1",
+  "type": "object",
+  "x-groups": [
+    "cpu",
+    "memory",
+    "gpu",
+    "disk",
+    "net"
+  ],
+  "properties": {
+    "v": {
+      "type": "integer",
+      "const": 1
+    },
+    "cpu": {
+      "type": "object",
+      "properties": {
+        "usage": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "x-field": "cpu",
+          "x-unit": "percent",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "temp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "x-field": "cpu_temperature",
+          "x-unit": "celsius"
+        }
+      },
+      "required": [
+        "usage",
+        "temp"
+      ],
+      "x-fields": [
+        "usage",
+        "temp"
+      ]
+    },
+    "memory": {
+      "type": "object",
+      "properties": {
+        "used": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "x-field": "memory",
+          "x-unit": "percent",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "swap": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "x-field": "swap",
+          "x-unit": "percent",
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "used",
+        "swap"
+      ],
+      "x-fields": [
+        "used",
+        "swap"
+      ]
+    },
+    "gpu": {
+      "type": "object",
+      "properties": {
+        "usage": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "x-field": "gpu",
+          "x-unit": "percent",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "memory": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "x-field": "gpu_memory",
+          "x-unit": "percent",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "temp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "x-field": "gpu_temperature",
+          "x-unit": "celsius"
+        }
+      },
+      "required": [
+        "usage",
+        "memory",
+        "temp"
+      ],
+      "x-fields": [
+        "usage",
+        "memory",
+        "temp"
+      ]
+    },
+    "disk": {
+      "type": "object",
+      "properties": {
+        "read": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-field": "disk_read",
+          "x-unit": "bytes_per_second",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "write": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-field": "disk_write",
+          "x-unit": "bytes_per_second",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "temp": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "x-field": "disk_temperature",
+          "x-unit": "celsius"
+        }
+      },
+      "required": [
+        "read",
+        "write",
+        "temp"
+      ],
+      "x-fields": [
+        "read",
+        "write",
+        "temp"
+      ]
+    },
+    "net": {
+      "type": "object",
+      "properties": {
+        "rx": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-field": "net_rx",
+          "x-unit": "bytes_per_second",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "tx": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-field": "net_tx",
+          "x-unit": "bytes_per_second",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        }
+      },
+      "required": [
+        "rx",
+        "tx"
+      ],
+      "x-fields": [
+        "rx",
+        "tx"
+      ]
+    }
+  },
+  "required": [
+    "v",
+    "cpu",
+    "memory",
+    "gpu",
+    "disk",
+    "net"
+  ],
+  "x-max-frame-bytes": 4096
+}

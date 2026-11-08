@@ -1,6 +1,4 @@
 /* rldyour-sysinfo — preferences
- * Copyright (C) 2026 NDDev OpenNetwork
- * SPDX-License-Identifier: AGPL-3.0-or-later
  *
  * Runs in its own process, which is why nothing here touches St, Clutter, Meta
  * or Shell: those libraries exist only inside gnome-shell.

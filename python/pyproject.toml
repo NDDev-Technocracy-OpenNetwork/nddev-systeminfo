@@ -1,29 +1,31 @@
 [build-system]
-requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
+requires = ["hatchling==1.32.4"]
 
 [project]
-name = "rldyour-sysinfo"
-version = "0.3.1"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: POSIX :: Linux",
+]
 description = "Python client for the rldyour-sysinfo live metrics daemon"
+license = "Apache-2.0"
+name = "rldyour-sysinfo"
 readme = "README.md"
 requires-python = ">=3.9"
-license = "AGPL-3.0-or-later"
-authors = [{ name = "NDDev OpenNetwork" }]
-classifiers = [
-  "Programming Language :: Python :: 3",
-  "Operating System :: MacOS",
-  "Operating System :: Microsoft :: Windows :: Windows 10",
-  "Operating System :: POSIX :: Linux",
-]
+version = "0.3.2"
 
-[project.urls]
-Homepage = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo"
-Repository = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo"
-Issues = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo/issues"
+[[project.authors]]
+name = "NDDev OpenNetwork"
 
 [project.scripts]
 rldyour-sysinfo = "rldyour_sysinfo:main"
+
+[project.urls]
+Homepage = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo"
+Issues = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo/issues"
+Repository = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rldyour_sysinfo"]

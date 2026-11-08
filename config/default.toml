@@ -1,0 +1,23 @@
+# All shipped defaults live here. An explicit user file is validated in full.
+[sampling]
+interval_seconds = 5
+gpu = false
+idle_release_seconds = 30
+
+[transport]
+max_clients = 32
+handshake_bytes = 256
+handshake_timeout_ms = 250
+client_timeout_ms = 5000
+accept_stack_bytes = 65536
+
+[display]
+locale = "system"
+show_cpu = true
+show_memory = true
+show_gpu = false
+show_network = true
+show_temperatures = false
+
+[logging]
+level = "info"

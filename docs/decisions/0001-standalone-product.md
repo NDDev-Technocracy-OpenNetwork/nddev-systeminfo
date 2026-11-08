@@ -26,3 +26,9 @@ Repository transfer preserves identity, commits, tags, release IDs and assets.
 Installation migration preserves settings, disabled state and single ownership
 of the endpoint. Consumers move before old names are retired. Historical
 artifacts and their licenses remain immutable.
+
+The existing v1 socket paths remain the installation identity. New source, CLI
+and presentation names do not require a new socket identity. The upgraded daemon
+owns that same endpoint, so existing NDS clients and other v1 consumers continue
+to work. No second daemon or translation server is introduced. A future endpoint
+change requires an explicit consumer migration.

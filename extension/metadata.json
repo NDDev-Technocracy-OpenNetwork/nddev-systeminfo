@@ -1,7 +1,7 @@
 {
-  "uuid": "rldyour-sysinfo@nddev-opennetwork",
-  "name": "rldyour sysinfo",
   "description": "Shows CPU, memory, GPU, temperatures, disk and network activity in the top bar, left of the clock.\n\nReads everything from a companion daemon over a private socket, so the shell process itself does no polling and no parsing of kernel files.",
+  "name": "rldyour sysinfo",
+  "settings-schema": "org.gnome.shell.extensions.rldyour-sysinfo",
   "shell-version": [
     "46",
     "47",
@@ -10,6 +10,7 @@
     "50"
   ],
   "url": "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo",
-  "version": 2,
-  "settings-schema": "org.gnome.shell.extensions.rldyour-sysinfo"
+  "uuid": "rldyour-sysinfo@nddev-opennetwork",
+  "version": 302,
+  "version-name": "0.3.2"
 }
