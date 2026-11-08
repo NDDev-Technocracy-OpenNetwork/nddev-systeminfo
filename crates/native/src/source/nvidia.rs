@@ -1,5 +1,5 @@
 //! NVML stays loaded only while an enabled, awake NVIDIA adapter needs it.
-//! Initialization uses NO_ATTACH; Linux supplies only PCI devices already awake.
+//! Lazy initialization leaves enumeration to the already-awake PCI selection.
 use crate::proto::analysis::Gpu as Device;
 #[cfg(feature = "nvidia")]
 use crate::proto::analysis::MAX_GPUS;
@@ -18,11 +18,8 @@ impl Gpu {
         Self {
             nvml: enabled
                 .then(|| {
-                    nvml_wrapper::Nvml::init_with_flags(
-                        nvml_wrapper::bitmasks::InitFlags::NO_GPUS
-                            | nvml_wrapper::bitmasks::InitFlags::NO_ATTACH,
-                    )
-                    .ok()
+                    nvml_wrapper::Nvml::init_with_flags(nvml_wrapper::bitmasks::InitFlags::NO_GPUS)
+                        .ok()
                 })
                 .flatten(),
             devices: Vec::new(),

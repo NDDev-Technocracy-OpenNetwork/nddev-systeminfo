@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.8 — 2026-11-09
+
+- Restore utilization, temperature, memory and names from awake NVIDIA adapters
+  with lazy NVML initialization. Keep suspended PCI adapters unprobed.
+- Compare real NVIDIA telemetry against the independent native driver tool
+  when available, so successful library loading cannot hide unavailable data.
+
 ## 0.3.7 — 2026-11-09
 
 - Retry launchd's transient bootstrap exit 5 with bounded backoff after active

@@ -130,16 +130,24 @@ impl Gpu {
         self.devices.clear();
         let mut awake = Vec::new();
         for card in &mut self.cards {
-            let sleeping = card
+            let (sleeping, active) = card
                 .power
                 .as_mut()
                 .and_then(|file| file.read().ok())
-                .is_some_and(|v| v.trim() == "suspended");
-            if !sleeping && card.vendor == "0x10de" {
+                .map(|v| {
+                    let state = v.trim();
+                    (
+                        matches!(state, "suspended" | "suspending"),
+                        state == "active",
+                    )
+                })
+                .unwrap_or_default();
+            if card.vendor == "0x10de" && active {
                 awake.push(card.id.clone());
                 continue;
             }
-            let (usage, used, total, temperature) = if sleeping {
+            let unreadable = sleeping || card.vendor == "0x10de";
+            let (usage, used, total, temperature) = if unreadable {
                 (None, None, None, None)
             } else {
                 (
@@ -172,7 +180,7 @@ impl Gpu {
                 usage,
                 dedicated_used: used,
                 dedicated_total: total,
-                shared_used: if sleeping {
+                shared_used: if unreadable {
                     None
                 } else {
                     number(card.shared.as_mut())
@@ -221,6 +229,21 @@ mod tests {
         assert!(gpu.devices().is_empty());
     }
     #[test]
+    fn unknown_nvidia_power_state_does_not_load_the_driver() {
+        let path =
+            std::env::temp_dir().join(format!("systeminfo-gpu-power-{}", std::process::id()));
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("vendor"), "0x10de\n").unwrap();
+        let card = Card::discover(&path).unwrap();
+        let mut gpu = Gpu::new(false);
+        gpu.enabled = true;
+        gpu.cards.push(card);
+        gpu.read();
+        assert!(gpu.nvidia.is_none());
+        assert_eq!(gpu.devices()[0].status, "unavailable");
+        fs::remove_dir_all(path).unwrap();
+    }
+    #[test]
     fn native_gpu_inventory_stays_bounded_and_read_only() {
         let mut gpu = Gpu::new(true);
         gpu.read();
@@ -231,6 +254,57 @@ mod tests {
                 assert!(d.usage.is_none());
                 assert!(d.temperature.is_none());
             }
+        }
+    }
+    #[cfg(feature = "nvidia")]
+    #[test]
+    fn awake_nvidia_telemetry_matches_the_native_driver() {
+        let mut gpu = Gpu::new(true);
+        let mut expected = Vec::new();
+        for card in &mut gpu.cards {
+            if card.vendor != "0x10de"
+                || card
+                    .power
+                    .as_mut()
+                    .and_then(|file| file.read().ok())
+                    .is_none_or(|v| v.trim() != "active")
+            {
+                continue;
+            }
+            // Run the independent reference outside this process: NVML's
+            // process-global initialization count could otherwise mask a bad
+            // initialization flag in the collector under test. Never enumerate
+            // other adapters, and never ask the tool to wake a sleeping one.
+            let Ok(output) = std::process::Command::new("nvidia-smi")
+                .args([
+                    "--id",
+                    &card.id,
+                    "--query-gpu=name",
+                    "--format=csv,noheader",
+                ])
+                .output()
+            else {
+                continue;
+            };
+            if output.status.success()
+                && let Ok(name) = String::from_utf8(output.stdout)
+            {
+                expected.push((format!("pci:{}", card.id), gpu::label(name.trim().into())));
+            }
+        }
+        gpu.read();
+        for (id, name) in expected {
+            let device = gpu.devices().iter().find(|device| device.id == id).unwrap();
+            if device.status == "sleeping" {
+                continue; // The adapter may have suspended after the reference.
+            }
+            assert_eq!(device.name, name);
+            assert_eq!(device.status, "available");
+            assert!(
+                device.usage.is_some()
+                    || device.dedicated_used.is_some()
+                    || device.temperature.is_some()
+            );
         }
     }
 }
