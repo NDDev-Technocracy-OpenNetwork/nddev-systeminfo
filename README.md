@@ -48,7 +48,7 @@ an existing Wayland session can require the next login to discover new code.
 Linux requires a systemd user manager; the desktop interface targets GNOME 46–50.
 macOS requires 12 or later and supports Apple silicon and Intel. macOS archives
 carry an ad-hoc signature; Developer ID signing and notarization are not configured.
-Windows releases target x64 Windows 10/11, with the C runtime linked statically.
+Windows releases target x64 Windows 10 (1803 or later)/11, with the C runtime linked statically.
 Windows registers a per-user maintenance package with Windows Installer; removal
 can also be started from Installed apps. Its CLI hands removal to the OS and
 exits before the cached cleanup action deletes the installed executables.
@@ -133,6 +133,9 @@ the standalone/Windows listener blocks without a polling timer.
 A release-build comparison on one Linux host used separate executable copies,
 realtime demand, ten seconds of active measurement and ten seconds of idle CPU
 measurement after resource release:
+
+These measurements use the 0.3.2 candidate; 0.3.3 fixes the distribution utility
+and keeps the same collector and resource policy.
 
 | Provider profile | Active PSS | PSS after release | Threads |
 | --- | --- | --- | --- |

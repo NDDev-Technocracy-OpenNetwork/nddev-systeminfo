@@ -34,6 +34,24 @@ struct Artifacts {
 struct Github {
     repository: String,
 }
+enum Download {
+    CiArchive(u64),
+    ReleaseAsset(u64),
+}
+impl Download {
+    fn request(self) -> (String, &'static str) {
+        match self {
+            Self::CiArchive(id) => (
+                format!("actions/artifacts/{id}/zip"),
+                "Accept: application/json",
+            ),
+            Self::ReleaseAsset(id) => (
+                format!("releases/assets/{id}"),
+                "Accept: application/octet-stream",
+            ),
+        }
+    }
+}
 impl Github {
     fn resource(&self, path: &str) -> String {
         let root = format!("repos/{}", self.repository);
@@ -135,15 +153,16 @@ impl Github {
         }
         Err("release collection exceeds its metadata bound".into())
     }
-    fn download(&self, path: &str, destination: &Path) -> Result {
+    fn download(&self, source: Download, destination: &Path) -> Result {
+        let (path, accept) = source.request();
         let output = Command::new("gh")
             .args([
                 "api",
                 "--hostname",
                 "github.com",
                 "--header",
-                "Accept: application/octet-stream",
-                &self.resource(path),
+                accept,
+                &self.resource(&path),
             ])
             .stdout(fs::File::create(destination)?)
             .stderr(Stdio::piped())
@@ -273,7 +292,7 @@ fn unpack(github: &Github, artifact: &Value, destination: &Path) -> Result {
     }
     fs::create_dir_all(destination)?;
     let zip = destination.with_extension("zip");
-    github.download(&format!("actions/artifacts/{id}/zip"), &zip)?;
+    github.download(Download::CiArchive(id), &zip)?;
     if artifact["digest"].as_str() != Some(format!("sha256:{}", digest(&zip)?).as_str()) {
         return Err("CI artifact ZIP digest differs from GitHub metadata".into());
     }
@@ -546,10 +565,7 @@ pub(super) fn publish() -> Result {
         if let Some(asset) = matches.first() {
             let copy = directory.join(format!("verify-{name}"));
             github.download(
-                &format!(
-                    "releases/assets/{}",
-                    asset["id"].as_u64().ok_or("asset id missing")?
-                ),
+                Download::ReleaseAsset(asset["id"].as_u64().ok_or("asset id missing")?),
                 &copy,
             )?;
             if digest(&copy)? == *hash {
@@ -590,10 +606,7 @@ pub(super) fn publish() -> Result {
             .ok_or("uploaded asset missing")?;
         let copy = directory.join(format!("verify-{name}"));
         github.download(
-            &format!(
-                "releases/assets/{}",
-                asset["id"].as_u64().ok_or("asset id missing")?
-            ),
+            Download::ReleaseAsset(asset["id"].as_u64().ok_or("asset id missing")?),
             &copy,
         )?;
         if digest(&copy)? != *hash {
@@ -716,10 +729,7 @@ fn verify_distribution(artifact_name: &str, distribution: &str) -> Result {
     fs::create_dir_all(&directory)?;
     let record = directory.join("provenance.json");
     github.download(
-        &format!(
-            "releases/assets/{}",
-            provenance["id"].as_u64().ok_or("provenance id missing")?
-        ),
+        Download::ReleaseAsset(provenance["id"].as_u64().ok_or("provenance id missing")?),
         &record,
     )?;
     let provenance: Value = serde_json::from_slice(&fs::read(record)?)?;
@@ -780,6 +790,23 @@ fn verify_distribution(artifact_name: &str, distribution: &str) -> Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn binary_endpoints_keep_their_distinct_github_media_contracts() {
+        assert_eq!(
+            Download::CiArchive(42).request(),
+            (
+                "actions/artifacts/42/zip".into(),
+                "Accept: application/json"
+            )
+        );
+        assert_eq!(
+            Download::ReleaseAsset(42).request(),
+            (
+                "releases/assets/42".into(),
+                "Accept: application/octet-stream"
+            )
+        );
+    }
     #[test]
     fn repository_identity_uses_the_real_github_root_route() {
         let github = Github {

@@ -37,3 +37,12 @@ native/Python/Debian artifacts. Downloaded release bytes are compared before
 publication and signed APT distribution. macOS uses an ad-hoc signature until a
 product Developer ID/notarization identity is configured. Current status and
 release evidence must be read from #39 and the repository's release records.
+
+The first 0.3.2 publication attempt (CI 42489391606) stopped before promotion or
+tag creation: the CI archive endpoint requires a JSON media type, whereas a
+release-asset download requires octet-stream. The version remains reserved and
+the corrected distribution proceeds as 0.3.3. The collector behavior is unchanged.
+The corrected requests were exercised against an actual CI archive and the
+historical 0.3.1 Linux release asset; both matched GitHub's recorded SHA-256.
+Ubuntu workspace tests and Clippy, plus build-free source checks, passed for
+the correction before cross-platform qualification.
