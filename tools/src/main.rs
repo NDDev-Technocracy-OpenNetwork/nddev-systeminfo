@@ -643,6 +643,7 @@ fn check() -> Result {
         }
     }
     let version = version()?;
+    delivery::release_notes(&fs::read_to_string("CHANGELOG.md")?, &version)?;
     if fs::read_to_string("daemon/src/config/defaults.rs")? != rust_defaults()? {
         return Err("compiled defaults drifted; run just generate".into());
     }

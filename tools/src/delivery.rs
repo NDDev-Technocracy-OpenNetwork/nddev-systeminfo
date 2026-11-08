@@ -334,11 +334,11 @@ fn unpack(github: &Github, artifact: &Value, destination: &Path) -> Result {
     Ok(())
 }
 
-fn release_notes(changelog: &str, version: &str) -> Result<String> {
-    let heading = format!("## {version} ");
+pub(super) fn release_notes(changelog: &str, version: &str) -> Result<String> {
+    let heading = format!("## {version}");
     let mut lines = changelog
         .lines()
-        .skip_while(|line| !line.starts_with(&heading));
+        .skip_while(|line| *line != heading && !line.starts_with(&format!("{heading} ")));
     let first = lines.next().ok_or("release changelog section missing")?;
     Ok(std::iter::once(first)
         .chain(lines.take_while(|line| !line.starts_with("## ")))
@@ -387,6 +387,9 @@ pub(super) fn publish() -> Result {
     {
         return Err("stable release needs a numeric semantic version".into());
     }
+    // Read and validate all release metadata before main or a tag can change.
+    // Recovery reuses the qualified source, never the publisher's own changelog.
+    let notes = release_notes(&source_file(&commit, "CHANGELOG.md")?, &version)?;
     let tag = format!("v{version}");
     let existing_tag = github.optional(&format!("git/ref/tags/{tag}"))?;
     if let Some(existing) = &existing_tag
@@ -544,7 +547,7 @@ pub(super) fn publish() -> Result {
     let release = if let Some(release) = existing_release {
         release
     } else {
-        github.api("POST", "releases", Some(json!({"tag_name":tag,"target_commitish":commit,"name":format!("NDDev Systeminfo {version}"),"body":release_notes(&source_file(&commit,"CHANGELOG.md")?, &version)?,"draft":true,"prerelease":false})))?
+        github.api("POST", "releases", Some(json!({"tag_name":tag,"target_commitish":commit,"name":format!("NDDev Systeminfo {version}"),"body":notes,"draft":true,"prerelease":false})))?
     };
     let release_id = release["id"].as_u64().ok_or("release id missing")?;
     for (name, (path, hash)) in &payload {
@@ -856,5 +859,14 @@ mod tests {
     fn notes_only_contain_the_released_version() {
         assert_eq!(release_notes("# Changelog\n\n## 0.3.2 — today\n\nNew behavior.\n\n## 0.3.1 — before\nOld behavior.","0.3.2").unwrap(),"## 0.3.2 — today\n\nNew behavior.");
         assert!(release_notes("# Changelog\n## 0.3.1 — before", "0.3.2").is_err());
+        assert_eq!(
+            release_notes(
+                "# Changelog\n## 0.3.5\n\nNative analysis.\n\n## 0.3.4 — before\nEarlier behavior.",
+                "0.3.5"
+            )
+            .unwrap(),
+            "## 0.3.5\n\nNative analysis."
+        );
+        assert!(release_notes("# Changelog\n## 0.3.50 — another version", "0.3.5").is_err());
     }
 }

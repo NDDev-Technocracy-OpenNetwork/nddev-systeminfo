@@ -57,3 +57,12 @@ Later Windows accessibility qualification exposes status/statistics as native
 STATIC labels, alongside standard buttons and choices. A finite lifecycle run
 does not prove leak freedom. Actual release qualification and device deployment
 are tracked in #55; unsupported readings remain null.
+
+Final PR #59 qualification 42523569017 passed at
+`bace169523e52e6109b50476a9b2d6fdfe39b99f`, including the corrected native
+Windows choice painting and readable standard labels. Its merge source
+`163d47c1b6082e8d5692ea25b55c199f5ac7dd67` passed the product gates in
+42524196811. Publication then failed on a bare changelog heading after stable
+promotion and annotated v0.3.5 creation. No GitHub release existed; the tag was
+preserved. Issue #60 records moving metadata validation before remote mutation,
+sharing it with source checks and shipping the corrected next patch as 0.3.6.
