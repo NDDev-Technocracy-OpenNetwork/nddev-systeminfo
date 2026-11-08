@@ -87,6 +87,7 @@ pub(super) struct HighContrast {
     pub scheme: *mut u16,
 }
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub(super) struct Rectangle {
     pub left: i32,
     pub top: i32,

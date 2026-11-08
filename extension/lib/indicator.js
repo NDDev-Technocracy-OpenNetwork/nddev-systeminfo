@@ -23,6 +23,8 @@ const ROWS = [
     ['network_rx', 'net.rx:rate'], ['network_tx', 'net.tx:rate'],
 ];
 const FORMATTERS = {percent, celsius, rate, rateIn, rateOut};
+const VERTICAL_LAYOUT = St.BoxLayout.list_properties().some(property => property.name === 'orientation')
+    ? {orientation: Clutter.Orientation.VERTICAL} : {vertical: true};
 
 export const Indicator = GObject.registerClass(class Indicator extends PanelMenu.Button {
     _init(settings, openPreferences) {
@@ -70,7 +72,7 @@ export const Indicator = GObject.registerClass(class Indicator extends PanelMenu
             for (const spec of settings.resource.cells.slice(offset, offset + 2)) {
                 const series = settings.resource.series.find(s => s.key === spec.metric);
                 const format = series.unit === 'percent' ? 'percent' : series.unit === 'celsius' ? 'celsius' : 'rate';
-                const content = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL});
+                const content = new St.BoxLayout(VERTICAL_LAYOUT);
                 const title = new St.Label({text: settings.text(spec.label)});
                 const value = this._value(`${spec.metric}:${format}`, 'systeminfo-value');
                 content.add_child(title); content.add_child(value);

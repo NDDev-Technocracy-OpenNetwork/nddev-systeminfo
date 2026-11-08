@@ -405,12 +405,15 @@ final class AnalysisWindow: NSWindowController, NSWindowDelegate {
                 case .view(let view, let raw): self.view = view; self.raw = raw; self.live = true
                 case .offline:
                     self.live = false
-                    self.retry = Timer.scheduledTimer(timeInterval: Double(self.config.transport.reconnectSeconds),
-                        target: self, selector: #selector(self.reconnectAnalysis), userInfo: nil, repeats: false)
+                    self.scheduleReconnect()
                 }
                 self.render()
             }
         }
+    }
+    private func scheduleReconnect() {
+        retry = Timer.scheduledTimer(timeInterval: Double(config.transport.reconnectSeconds),
+            target: self, selector: #selector(reconnectAnalysis), userInfo: nil, repeats: false)
     }
     @objc private func reconnectAnalysis() { restart() }
     private func format(_ value: Double?, unit: String) -> String {

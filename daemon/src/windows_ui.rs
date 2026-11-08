@@ -76,6 +76,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     state.side = ((tray.dpi() * 16 / 96).div_ceil(16) * 16).clamp(16, 128);
     state.refresh_icon();
     let proxy = tray.proxy();
+    let mut analysis = crate::windows_analysis::AnalysisUI::new(proxy.clone());
     proxy.update(state.model());
     let shared = Arc::new((Mutex::new(state), Condvar::new()));
     let worker_state = shared.clone();
@@ -90,6 +91,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let result = tray.run(|event, proxy| {
         let mut state = shared.0.lock().unwrap();
+        if let Event::Command(id) = &event && analysis.command(*id, &state.config) { return; }
         match event {
             Event::Command(QUIT) => { proxy.close(); }
             Event::Command(COPY) => {
@@ -136,6 +138,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             },
             Event::AppearanceChanged => { state.refresh_icon(); }
         }
+        analysis.configure(&state.config);
         proxy.update(state.model());
     });
     {
@@ -151,6 +154,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .join()
         .map_err(|_| io::Error::other("native reader failed"))?;
     result?;
+    drop(analysis);
     Ok(())
 }
 fn restart(state: &mut State, wake: &Condvar) {
