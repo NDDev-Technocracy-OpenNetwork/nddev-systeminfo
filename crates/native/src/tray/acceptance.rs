@@ -67,6 +67,7 @@ pub fn focus(tray: &Tray) -> io::Result<()> {
             None
         };
         SetForegroundWindow(tray.window);
+        SetFocus(tray.window);
         let mut owner = 0;
         GetWindowThreadProcessId(GetForegroundWindow(), &mut owner);
         if owner != std::process::id() {

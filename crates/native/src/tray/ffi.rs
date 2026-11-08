@@ -233,6 +233,7 @@ unsafe extern "system" {
     ) -> u32;
     pub(super) fn GetCursorPos(point: *mut Point) -> i32;
     pub(super) fn SetForegroundWindow(window: Handle) -> i32;
+    pub(super) fn SetFocus(window: Handle) -> Handle;
     pub(super) fn EndMenu() -> i32;
     pub(super) fn CreateIconIndirect(info: *const IconInfo) -> Handle;
     pub(super) fn DestroyIcon(icon: Handle) -> i32;

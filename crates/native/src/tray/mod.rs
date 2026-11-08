@@ -329,6 +329,7 @@ impl Tray {
                 GetCursorPos(&mut point);
             }
             SetForegroundWindow(self.window);
+            SetFocus(self.window);
             let command = TrackPopupMenuEx(
                 menu.0,
                 0x100 | 2 | if model.rtl { 0x8000 } else { 0 },
