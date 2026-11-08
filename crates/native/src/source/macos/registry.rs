@@ -17,6 +17,7 @@ unsafe extern "C" {
     ) -> i32;
     fn IOIteratorNext(iterator: u32) -> u32;
     fn IOObjectRelease(object: u32) -> i32;
+    fn IOObjectGetClass(object: u32, name: *mut std::ffi::c_char) -> i32;
     fn IORegistryEntryGetRegistryEntryID(entry: u32, identifier: *mut u64) -> i32;
     fn IORegistryEntryCreateCFProperty(
         entry: u32,
@@ -58,7 +59,7 @@ pub(super) struct Registry<const N: usize> {
     class: &'static CStr,
     property: Owned,
     keys: [Owned; N],
-    services: Vec<(u64, Object)>,
+    services: Vec<(u64, Object, String)>,
     discovered: Instant,
     generation: u64,
 }
@@ -104,16 +105,29 @@ impl<const N: usize> Registry<N> {
                     // SAFETY: owned service and valid u64 output storage.
                     if unsafe { IORegistryEntryGetRegistryEntryID(service.0, &mut identifier) } == 0
                     {
-                        services.push((identifier, service));
+                        let mut name = [0 as std::ffi::c_char; 128];
+                        // SAFETY: owned service and the API's fixed 128-byte
+                        // io_name_t output. Decode only its initialized bounded prefix.
+                        let name = if unsafe { IOObjectGetClass(service.0, name.as_mut_ptr()) } == 0
+                        {
+                            let end = name.iter().position(|c| *c == 0).unwrap_or(name.len());
+                            String::from_utf8_lossy(
+                                &name[..end].iter().map(|c| *c as u8).collect::<Vec<_>>(),
+                            )
+                            .into_owned()
+                        } else {
+                            String::new()
+                        };
+                        services.push((identifier, service, name));
                     }
                 }
             }
         }
-        services.sort_unstable_by_key(|(identifier, _)| *identifier);
+        services.sort_unstable_by_key(|(identifier, _, _)| *identifier);
         if !services
             .iter()
-            .map(|(identifier, _)| identifier)
-            .eq(self.services.iter().map(|(identifier, _)| identifier))
+            .map(|(identifier, _, _)| identifier)
+            .eq(self.services.iter().map(|(identifier, _, _)| identifier))
         {
             self.generation = self.generation.wrapping_add(1);
         }
@@ -124,10 +138,16 @@ impl<const N: usize> Registry<N> {
         self.generation
     }
     pub(super) fn visit(&mut self, mut read: impl FnMut([Option<Number>; N])) -> bool {
+        self.visit_identified(|_, _, values| read(values))
+    }
+    pub(super) fn visit_identified(
+        &mut self,
+        mut read: impl FnMut(u64, &str, [Option<Number>; N]),
+    ) -> bool {
         if self.discovered.elapsed() >= Duration::from_secs(30) {
             self.discover();
         }
-        for (_, service) in &self.services {
+        for (identifier, service, name) in &self.services {
             // SAFETY: live service, live CFString key and the default allocator.
             let dictionary = unsafe {
                 Owned::take(IORegistryEntryCreateCFProperty(
@@ -138,12 +158,12 @@ impl<const N: usize> Registry<N> {
                 ))
             };
             let Some(dictionary) = dictionary else {
-                read([None; N]);
+                read(*identifier, name, [None; N]);
                 continue;
             };
             // SAFETY: nonnull owned CF object; reject a provider's unexpected type.
             if unsafe { CFGetTypeID(dictionary.0) } != unsafe { CFDictionaryGetTypeID() } {
-                read([None; N]);
+                read(*identifier, name, [None; N]);
                 continue;
             }
             let values = std::array::from_fn(|index| {
@@ -178,7 +198,7 @@ impl<const N: usize> Registry<N> {
                     .then_some(Number::Integer(number))
                 }
             });
-            read(values);
+            read(*identifier, name, values);
         }
         !self.services.is_empty()
     }

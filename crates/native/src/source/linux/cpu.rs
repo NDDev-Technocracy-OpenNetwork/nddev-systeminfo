@@ -1,94 +1,138 @@
-//! Linux aggregate CPU busy time from `/proc/stat`.
-
-use super::VirtualFile;
+//! Aggregate and per-logical-CPU load from one buffered `/proc/stat` read.
+use crate::proto::analysis::{Core, MAX_CORES};
 use crate::source::delta;
-use std::io;
+use std::{
+    fs::File,
+    io::{self, BufRead, BufReader, Seek, SeekFrom},
+};
 
 pub(super) struct Cpu {
-    file: VirtualFile,
-    previous: Option<Sample>,
+    file: BufReader<File>,
+    line: String,
+    previous: Vec<(u32, Sample)>,
+    current: Vec<(u32, Sample)>,
+    aggregate: Option<Sample>,
+    readings: Vec<Core>,
 }
-
 #[derive(Clone, Copy)]
 struct Sample {
     total: u64,
     idle: u64,
 }
-
+impl Sample {
+    fn usage(self, before: Self) -> Option<f32> {
+        let elapsed = delta(self.total, before.total);
+        (elapsed > 0).then(|| {
+            (elapsed - delta(self.idle, before.idle).min(elapsed)) as f32 * 100.0 / elapsed as f32
+        })
+    }
+}
 impl Cpu {
     pub(super) fn new() -> io::Result<Self> {
         Ok(Self {
-            file: VirtualFile::open("/proc/stat")?,
-            previous: None,
+            file: BufReader::new(File::open("/proc/stat")?),
+            line: String::with_capacity(256),
+            previous: Vec::new(),
+            current: Vec::new(),
+            aggregate: None,
+            readings: Vec::new(),
         })
     }
-
-    /// Busy share of all cores since the previous call, in percent.
-    ///
-    /// The first call establishes the baseline and reports nothing, because a
-    /// percentage needs two samples.
+    pub(super) fn cores(&self) -> &[Core] {
+        &self.readings
+    }
     pub(super) fn usage(&mut self) -> io::Result<Option<f32>> {
-        let line = self
-            .file
-            .read_prefix(1024)?
-            .lines()
-            .next()
-            .unwrap_or_default();
-        let current = parse_stat_line(line);
-        let previous = self.previous.replace(current);
-
-        Ok(previous.and_then(|previous| {
-            let elapsed = delta(current.total, previous.total);
-            if elapsed == 0 {
-                return None;
+        self.readings.clear();
+        self.current.clear();
+        self.file.seek(SeekFrom::Start(0))?;
+        self.line.clear();
+        self.file.read_line(&mut self.line)?;
+        if !self.line.starts_with("cpu ") {
+            return Err(io::Error::other("missing aggregate CPU counters"));
+        }
+        let aggregate = parse_stat_line(&self.line)?;
+        let usage = self
+            .aggregate
+            .replace(aggregate)
+            .and_then(|before| aggregate.usage(before));
+        loop {
+            self.line.clear();
+            if self.file.read_line(&mut self.line)? == 0 || !self.line.starts_with("cpu") {
+                break;
             }
-            let busy = elapsed - delta(current.idle, previous.idle).min(elapsed);
-            Some(busy as f32 * 100.0 / elapsed as f32)
-        }))
+            let Some(id) = self
+                .line
+                .split_ascii_whitespace()
+                .next()
+                .and_then(|s| s.strip_prefix("cpu"))
+                .and_then(|s| s.parse::<u32>().ok())
+            else {
+                break;
+            };
+            if self.current.len() == MAX_CORES
+                || self.current.last().is_some_and(|(old, _)| *old >= id)
+            {
+                return Err(io::Error::other("invalid or excessive CPU counter list"));
+            }
+            let sample = parse_stat_line(&self.line)?;
+            let index = self.current.len();
+            let value = self
+                .previous
+                .get(index)
+                .filter(|(old, _)| *old == id)
+                .and_then(|(_, before)| sample.usage(*before));
+            self.readings.push(Core {
+                id,
+                usage: value.map(|v| f64::from((v * 10.0).round() / 10.0)),
+            });
+            self.current.push((id, sample));
+        }
+        std::mem::swap(&mut self.previous, &mut self.current);
+        Ok(usage)
     }
 }
-
-/// Reads the aggregate `cpu` row: `user nice system idle iowait irq softirq
-/// steal guest guest_nice`.
-///
-/// `guest` and `guest_nice` are already folded into `user` and `nice` by the
-/// kernel, so the count stops at `steal` — summing them again would inflate
-/// the denominator and understate load on hosts running virtual machines.
-fn parse_stat_line(line: &str) -> Sample {
-    let mut total = 0u64;
-    let mut idle = 0u64;
-    for (position, value) in line.split_ascii_whitespace().skip(1).enumerate() {
-        if position > 7 {
-            break;
-        }
-        let Ok(ticks) = value.parse::<u64>() else {
-            continue;
-        };
-        total += ticks;
-        // `idle` and `iowait` both mean the core had nothing to run.
+// Guest time is already included in user/nice. Stop at steal; idle+iowait
+// are not busy. Checked totals reject malformed or overflowing OS input.
+fn parse_stat_line(line: &str) -> io::Result<Sample> {
+    let (mut total, mut idle) = (0u64, 0u64);
+    for (position, value) in line.split_ascii_whitespace().skip(1).take(8).enumerate() {
+        let ticks = value.parse::<u64>().map_err(io::Error::other)?;
+        total = total
+            .checked_add(ticks)
+            .ok_or_else(|| io::Error::other("CPU counter overflow"))?;
         if position == 3 || position == 4 {
-            idle += ticks;
+            idle = idle
+                .checked_add(ticks)
+                .ok_or_else(|| io::Error::other("idle counter overflow"))?;
         }
     }
-    Sample { total, idle }
+    Ok(Sample { total, idle })
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn guest_ticks_are_not_counted_twice() {
-        // user nice system idle iowait irq softirq steal guest guest_nice
-        let sample = parse_stat_line("cpu  10 5 10 70 5 0 0 0 300 100");
-        assert_eq!(sample.total, 100);
-        assert_eq!(sample.idle, 75);
+        let s = parse_stat_line("cpu 10 5 10 70 5 0 0 0 300 100").unwrap();
+        assert_eq!((s.total, s.idle), (100, 75));
     }
-
     #[test]
-    fn a_short_line_parses_what_is_there() {
-        let sample = parse_stat_line("cpu  1 0 1 8");
-        assert_eq!(sample.total, 10);
-        assert_eq!(sample.idle, 8);
+    fn native_core_counters_match_the_online_cpu_rows() {
+        let expected = std::fs::read_to_string("/proc/stat")
+            .unwrap()
+            .lines()
+            .filter(|s| s.starts_with("cpu") && s.as_bytes().get(3).is_some_and(u8::is_ascii_digit))
+            .count();
+        let mut cpu = Cpu::new().unwrap();
+        assert!(cpu.usage().unwrap().is_none());
+        assert_eq!(cpu.cores().len(), expected);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        cpu.usage().unwrap();
+        assert!(cpu.cores().iter().any(|v| v.usage.is_some()));
+        assert!(
+            cpu.cores()
+                .iter()
+                .all(|v| v.usage.is_none_or(|x| (0.0..=100.0).contains(&x)))
+        );
     }
 }

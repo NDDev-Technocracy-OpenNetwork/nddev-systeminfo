@@ -32,6 +32,12 @@ pub(crate) struct MacosCollector {
 }
 
 impl MetricsSource for MacosCollector {
+    fn cores(&self) -> &[crate::proto::analysis::Core] {
+        self.cpu.cores()
+    }
+    fn gpus(&self) -> &[crate::proto::analysis::Gpu] {
+        self.gpu.as_ref().map_or(&[], |gpu| gpu.devices())
+    }
     fn new(gpu: bool) -> io::Result<Self> {
         Ok(Self {
             cpu: Cpu::new(),

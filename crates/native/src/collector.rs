@@ -14,4 +14,11 @@ impl Collector {
     pub fn sample(&mut self) -> Snapshot {
         MetricsSource::sample(&mut self.0)
     }
+    /// Values from the last CPU read, never a second hardware poll.
+    pub fn cores(&self) -> &[crate::proto::analysis::Core] {
+        MetricsSource::cores(&self.0)
+    }
+    pub fn gpus(&self) -> &[crate::proto::analysis::Gpu] {
+        MetricsSource::gpus(&self.0)
+    }
 }

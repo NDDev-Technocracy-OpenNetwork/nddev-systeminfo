@@ -13,8 +13,9 @@ mod macos;
 mod windows;
 
 mod counters;
+mod gpu;
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(target_os = "linux")]
 mod nvidia;
 
 #[cfg(target_os = "linux")]
@@ -28,6 +29,7 @@ pub(crate) use windows::WindowsCollector as PlatformCollector;
 compile_error!("nddev-systeminfod supports Linux, macOS, and Windows");
 
 use crate::proto::Snapshot;
+use crate::proto::analysis::{Core, Gpu};
 use std::io;
 
 /// The contract every platform collector fulfils: build once at daemon start,
@@ -39,6 +41,8 @@ pub(crate) trait MetricsSource {
     where
         Self: Sized;
     fn sample(&mut self) -> Snapshot;
+    fn cores(&self) -> &[Core];
+    fn gpus(&self) -> &[Gpu];
 }
 
 // Compile-time proof that the selected platform honours the contract.

@@ -86,4 +86,81 @@ fn main() {
     validation.push_str("        Ok(())\n    }\n}\n");
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("snapshot.rs");
     fs::write(output, flat + &wire + &types + &encode + &validation).unwrap();
+    analysis();
+}
+
+fn analysis() {
+    let path = "../../contracts/analysis-v1.schema.json";
+    println!("cargo:rerun-if-changed={path}");
+    let schema: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    let mut output = String::new();
+    for (name, key) in [
+        ("MAX_ANALYSIS_FRAME_BYTES", "x-max-frame-bytes"),
+        ("MAX_CORES", "x-max-cores"),
+        ("MAX_GPUS", "x-max-gpus"),
+    ] {
+        writeln!(output, "pub const {name}: usize = {};", schema[key]).unwrap();
+    }
+    for (name, key) in [
+        ("HISTORY_SECONDS", "retention-seconds"),
+        ("HISTORY_RECORDS", "max-records"),
+        ("HISTORY_BYTES", "max-bytes"),
+        ("PLOT_COLUMNS", "plot-columns"),
+    ] {
+        writeln!(
+            output,
+            "pub const {name}: usize = {};",
+            schema["x-history"][key]
+        )
+        .unwrap();
+    }
+    for (name, definition) in schema["$defs"].as_object().unwrap() {
+        writeln!(
+            output,
+            "#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]\npub struct {name} {{"
+        )
+        .unwrap();
+        for (field, value) in definition["properties"].as_object().unwrap() {
+            let (kind, nullable) = analysis_type(value);
+            if nullable {
+                output.push_str("    #[serde(deserialize_with = \"Option::deserialize\")]\n");
+            }
+            writeln!(
+                output,
+                "    pub {field}: {},",
+                if nullable {
+                    format!("Option<{kind}>")
+                } else {
+                    kind
+                }
+            )
+            .unwrap();
+        }
+        output.push_str("}\n");
+    }
+    fs::write(
+        PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("analysis.rs"),
+        output,
+    )
+    .unwrap();
+}
+fn analysis_type(value: &Value) -> (String, bool) {
+    if let Some(reference) = value["$ref"].as_str() {
+        return (reference.rsplit('/').next().unwrap().into(), false);
+    }
+    let nullable = value["type"].is_array();
+    let kind = if nullable {
+        value["type"][0].as_str().unwrap()
+    } else {
+        value["type"].as_str().unwrap()
+    };
+    let result = match kind {
+        "integer" => value["x-rust-type"].as_str().unwrap_or("u64").into(),
+        "number" => "f64".into(),
+        "string" => "String".into(),
+        "boolean" => "bool".into(),
+        "array" => format!("Vec<{}>", analysis_type(&value["items"]).0),
+        _ => panic!("unsupported analysis schema type"),
+    };
+    (result, nullable)
 }
