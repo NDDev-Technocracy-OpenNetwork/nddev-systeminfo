@@ -7,6 +7,7 @@ use socket2::{Domain, SockAddr, Socket, Type};
 use std::{
     io::{self, BufRead, BufReader, Read, Write},
     path::Path,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -21,7 +22,7 @@ pub enum ClientError {
 }
 
 struct DeadlineReader {
-    socket: Socket,
+    socket: Arc<Socket>,
     deadline: Instant,
 }
 impl Read for DeadlineReader {
@@ -35,7 +36,7 @@ impl Read for DeadlineReader {
             // Darwin may reject timeout setup after a peer closed even when
             // its last frame is readable. Probe without ever blocking.
             self.socket.set_nonblocking(true)?;
-            let result = (&self.socket).read(bytes);
+            let result = self.socket.as_ref().read(bytes);
             self.socket.set_nonblocking(false)?;
             if Instant::now() >= self.deadline {
                 return Err(io::ErrorKind::TimedOut.into());
@@ -45,7 +46,7 @@ impl Read for DeadlineReader {
                 result => result,
             };
         }
-        let result = (&self.socket).read(bytes);
+        let result = self.socket.as_ref().read(bytes);
         if Instant::now() >= self.deadline {
             return Err(io::ErrorKind::TimedOut.into());
         }
@@ -59,10 +60,11 @@ pub struct Client {
     timeout: Duration,
 }
 impl Client {
-    /// An independent handle only shuts down this connection. It lets a native
-    /// UI cancel a sleeping read immediately when settings change or it exits.
-    pub fn cancellation(&self) -> io::Result<Cancellation> {
-        Ok(Cancellation(self.reader.get_ref().socket.try_clone()?))
+    /// Share the original socket rather than duplicate a Winsock handle. Both
+    /// cancellation-before-read and cancellation-during-read shut down the same
+    /// native handle; the last owner closes it after the reader has returned.
+    pub fn cancellation(&self) -> Cancellation {
+        Cancellation(self.reader.get_ref().socket.clone())
     }
     pub fn connect(path: &Path, interval: u64, timeout: Duration) -> Result<Self, ClientError> {
         let cadence = cadence(interval).ok_or(ClientError::InvalidConfiguration)?;
@@ -77,7 +79,7 @@ impl Client {
             reader: BufReader::with_capacity(
                 1024,
                 DeadlineReader {
-                    socket: stream,
+                    socket: Arc::new(stream),
                     deadline: Instant::now() + timeout,
                 },
             ),
@@ -119,7 +121,7 @@ impl Client {
     }
 }
 
-pub struct Cancellation(Socket);
+pub struct Cancellation(Arc<Socket>);
 impl Cancellation {
     pub fn cancel(&self) {
         let _ = self.0.shutdown(std::net::Shutdown::Both);
@@ -237,16 +239,28 @@ mod tests {
     }
     #[test]
     fn native_ui_cancellation_interrupts_an_idle_socket() {
-        let peer = Peer::start(|mut socket| {
-            let mut byte = [0];
-            let _ = socket.read(&mut byte);
-        });
-        let mut client = Client::connect(&peer.path, 0, Duration::from_secs(5)).unwrap();
-        let cancellation = client.cancellation().unwrap();
-        let (done, wait) = std::sync::mpsc::sync_channel(1);
-        let task = thread::spawn(move || done.send(client.next_sample().is_err()).unwrap());
-        cancellation.cancel();
-        assert!(wait.recv_timeout(Duration::from_secs(1)).unwrap());
-        task.join().unwrap();
+        for before_read in [true, false] {
+            let peer = Peer::start(|mut socket| {
+                let mut byte = [0];
+                let _ = socket.read(&mut byte);
+            });
+            let mut client = Client::connect(&peer.path, 0, Duration::from_secs(5)).unwrap();
+            let cancellation = client.cancellation();
+            let (done, wait) = std::sync::mpsc::sync_channel(1);
+            if before_read {
+                cancellation.cancel();
+            }
+            let task = thread::spawn(move || done.send(client.next_sample().is_err()).unwrap());
+            if !before_read {
+                // First observe an idle read that does not complete by itself.
+                assert!(matches!(
+                    wait.recv_timeout(Duration::from_millis(25)),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                ));
+                cancellation.cancel();
+            }
+            assert!(wait.recv_timeout(Duration::from_secs(1)).unwrap());
+            task.join().unwrap();
+        }
     }
 }
