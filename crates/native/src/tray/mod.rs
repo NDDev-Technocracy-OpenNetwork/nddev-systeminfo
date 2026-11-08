@@ -740,11 +740,11 @@ mod tests {
             });
             let mut observed = false;
             tray.run(|event, _| {
-                if let Event::ConfigurationChanged = event {
-                    if std::fs::read_to_string(&file).is_ok_and(|text| text.contains("ar")) {
-                        observed = true;
-                        proxy.close();
-                    }
+                if let Event::ConfigurationChanged = event
+                    && std::fs::read_to_string(&file).is_ok_and(|text| text.contains("ar"))
+                {
+                    observed = true;
+                    proxy.close();
                 }
             })
             .unwrap();
