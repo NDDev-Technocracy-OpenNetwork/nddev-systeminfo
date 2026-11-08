@@ -24,6 +24,10 @@ is downloaded again and compared by SHA-256 before publication. Existing tags
 never move. A published asset with different bytes stops recovery. A partial
 draft can resume with the same version and original CI run.
 
+The qualified source's exact release-note section is parsed before any remote
+mutation. Ordinary source checks run the same parser. Bare-version and dated
+Markdown headings are supported without matching another version's prefix.
+
 The release then dispatches signed APT publication on `main`, as required by
 the Pages environment, and waits for its result. Before signing, APT downloads
 the original Debian CI artifact again and compares both packages with the

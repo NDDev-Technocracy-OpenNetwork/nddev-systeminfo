@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.5
+## 0.3.6 — 2026-11-09
 
 - Add passive per-adapter GPU details and logical-core CPU readings on Linux,
   macOS and Windows. New configurations enable GPU collection; existing explicit
@@ -12,6 +12,16 @@
   five locales. Closing a window cancels its reader.
 - Preserve ordinary v1 SDK/NDS streams and keep history opt-in for integrations.
   Add an installed native UI launcher and update qualified Python/CI tooling.
+- Check qualified release notes before promotion or tag creation and share that
+  preflight with source checks. Accept exact bare-version and dated headings.
+
+## 0.3.5 — unpublished, 2026-11-09
+
+Native qualification passed at `163d47c1b6082e8d5692ea25b55c199f5ac7dd67`.
+The publisher promoted that source and created its immutable annotated tag,
+then stopped because its notes parser rejected a bare-version Markdown heading.
+No GitHub release was created. The tag remains unchanged; corrected publication
+and the native analysis features ship as 0.3.6.
 
 ## 0.3.4 — 2026-11-08
 
