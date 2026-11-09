@@ -73,7 +73,7 @@ pub(super) fn run() -> Result {
     }
     let binaries = build_binaries(false)?;
     let root = Directory(std::env::temp_dir().join(format!(
-            "si-ui-{}-{}",
+            "si-ui-{}-{}-% space",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)?

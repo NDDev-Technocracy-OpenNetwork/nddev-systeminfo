@@ -1,3 +1,8 @@
+---
+status: accepted
+date: "2026-11-08"
+---
+
 # Native OS access and lightweight presentation
 
 Status: accepted by the owner, 8 November 2026. Native presentation and the

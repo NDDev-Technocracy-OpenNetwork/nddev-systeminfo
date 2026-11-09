@@ -106,7 +106,9 @@ async function exercise() {
     await until(() => global.get_window_actors().some(actor => actor.meta_window.get_title() === analysisTitle));
     const analysis = global.get_window_actors().find(actor => actor.meta_window.get_title() === analysisTitle);
     const analysisPid = analysis.meta_window.get_pid();
-    analysis.meta_window.activate(global.get_current_time());
+    // The user's cell activation must raise the window itself. Manually
+    // activating here would hide a missing compositor startup token.
+    await until(() => global.display.focus_window === analysis.meta_window);
     const probe = `${GLib.getenv('SYSTEMINFO_TEST_ROOT')}/data/gnome-shell/extensions/systeminfo-ui-test@opennetwork/gtk-inspect.js`;
     async function inspect(value, action) {
         return JSON.parse(await command(['gjs', '-m', probe, analysisTitle, value, String(analysisPid), ...(action ? [action] : [])]));

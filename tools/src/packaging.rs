@@ -63,12 +63,7 @@ pub(super) fn package() -> Result<PathBuf> {
     if cfg!(target_os = "macos") {
         macos(&root, &version)?;
     }
-    for file in [
-        "LICENSE",
-        "NOTICE",
-        "THIRD_PARTY_NOTICES.md",
-        "CHANGELOG.md",
-    ] {
+    for file in ["LICENSE", "NOTICE", "NOTICE.third-party.md"] {
         copy(file, root.join(file))?;
     }
     if cfg!(target_os = "windows") {

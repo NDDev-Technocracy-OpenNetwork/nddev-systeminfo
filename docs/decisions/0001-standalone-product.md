@@ -1,3 +1,8 @@
+---
+status: accepted
+date: "2026-11-08"
+---
+
 # Standalone product and NDS integration
 
 Status: accepted product direction, 8 November 2026.

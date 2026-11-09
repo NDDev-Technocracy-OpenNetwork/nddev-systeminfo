@@ -178,7 +178,7 @@ impl Github {
     }
 }
 fn configuration() -> Result<(Configuration, Github)> {
-    let configuration: Configuration = toml::from_str(&fs::read_to_string("release.toml")?)?;
+    let configuration: Configuration = toml::from_str(&fs::read_to_string("config/release.toml")?)?;
     if configuration.format != 1 {
         return Err("unsupported release configuration".into());
     }
@@ -334,18 +334,12 @@ fn unpack(github: &Github, artifact: &Value, destination: &Path) -> Result {
     Ok(())
 }
 
-pub(super) fn release_notes(changelog: &str, version: &str) -> Result<String> {
-    let heading = format!("## {version}");
-    let mut lines = changelog
-        .lines()
-        .skip_while(|line| *line != heading && !line.starts_with(&format!("{heading} ")));
-    let first = lines.next().ok_or("release changelog section missing")?;
-    Ok(std::iter::once(first)
-        .chain(lines.take_while(|line| !line.starts_with("## ")))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string())
+fn release_notes(response: &Value) -> Result<String> {
+    let body = response["body"]
+        .as_str()
+        .filter(|body| !body.trim().is_empty() && body.len() <= 256 * 1024)
+        .ok_or("release notes are missing or exceed their size bound")?;
+    Ok(body.to_owned())
 }
 
 pub(super) fn publish() -> Result {
@@ -387,9 +381,6 @@ pub(super) fn publish() -> Result {
     {
         return Err("stable release needs a numeric semantic version".into());
     }
-    // Read and validate all release metadata before main or a tag can change.
-    // Recovery reuses the qualified source, never the publisher's own changelog.
-    let notes = release_notes(&source_file(&commit, "CHANGELOG.md")?, &version)?;
     let tag = format!("v{version}");
     let existing_tag = github.optional(&format!("git/ref/tags/{tag}"))?;
     if let Some(existing) = &existing_tag
@@ -398,6 +389,16 @@ pub(super) fn publish() -> Result {
         return Err("published version belongs to another immutable commit".into());
     }
     let existing_release = github.release(&tag)?;
+    // The hosted journal owns release history. Generate from this exact qualified
+    // commit before mutation; recovery retains the existing draft/published body.
+    let notes = match &existing_release {
+        Some(release) => release_notes(release)?,
+        None => release_notes(&github.api(
+            "POST",
+            "releases/generate-notes",
+            Some(json!({"tag_name":tag,"target_commitish":commit})),
+        )?)?,
+    };
     if existing_tag.is_none()
         && existing_release
             .as_ref()
@@ -823,7 +824,8 @@ mod tests {
     }
     #[test]
     fn publication_rejects_other_sources_and_incomplete_qualification() {
-        let config: Configuration = toml::from_str(include_str!("../../release.toml")).unwrap();
+        let config: Configuration =
+            toml::from_str(include_str!("../../config/release.toml")).unwrap();
         let sha = "d".repeat(40);
         let run = json!({"event":"push", "head_branch":config.github.development_branch, "head_sha":sha, "workflow_id":config.github.workflow_id, "repository":{"id":config.github.repository_id}, "head_repository":{"id":config.github.repository_id}, "path":".github/workflows/ci.yml"});
         let jobs = vec![
@@ -856,17 +858,17 @@ mod tests {
         assert!(qualified(&run, &[], &config, &sha, "Release / ").is_err());
     }
     #[test]
-    fn notes_only_contain_the_released_version() {
-        assert_eq!(release_notes("# Changelog\n\n## 0.3.2 — today\n\nNew behavior.\n\n## 0.3.1 — before\nOld behavior.","0.3.2").unwrap(),"## 0.3.2 — today\n\nNew behavior.");
-        assert!(release_notes("# Changelog\n## 0.3.1 — before", "0.3.2").is_err());
-        assert_eq!(
-            release_notes(
-                "# Changelog\n## 0.3.5\n\nNative analysis.\n\n## 0.3.4 — before\nEarlier behavior.",
-                "0.3.5"
-            )
-            .unwrap(),
-            "## 0.3.5\n\nNative analysis."
-        );
-        assert!(release_notes("# Changelog\n## 0.3.50 — another version", "0.3.5").is_err());
+    fn hosted_journal_notes_preserve_bytes_and_reject_invalid_external_data() {
+        let body = "## Changes\n\nNative analysis.\n\nПодробности: #73\n";
+        assert_eq!(release_notes(&json!({"body":body})).unwrap(), body);
+        for response in [
+            json!({}),
+            json!({"body":null}),
+            json!({"body":8}),
+            json!({"body":" \n"}),
+            json!({"body":"a".repeat(256 * 1024 + 1)}),
+        ] {
+            assert!(release_notes(&response).is_err());
+        }
     }
 }

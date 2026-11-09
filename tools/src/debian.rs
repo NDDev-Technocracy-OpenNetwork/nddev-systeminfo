@@ -100,12 +100,7 @@ pub(super) fn package() -> Result {
         &root.join("usr/share/icons/hicolor/scalable/apps/nddev-systeminfo-symbolic.svg"),
         false,
     )?;
-    for file in [
-        "LICENSE",
-        "NOTICE",
-        "THIRD_PARTY_NOTICES.md",
-        "CHANGELOG.md",
-    ] {
+    for file in ["LICENSE", "NOTICE", "NOTICE.third-party.md"] {
         copy(
             Path::new(file),
             &root

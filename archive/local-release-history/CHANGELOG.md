@@ -1,3 +1,6 @@
+> **Historical record.** Retired 2026-11-09 from `CHANGELOG.md` at db02804b4895. Reason: The immutable GitHub Releases journal owns current release history; retain this earlier local journal as historical source.
+> Replacement: `README.md`. Not current guidance.
+
 # Changelog
 
 ## 0.3.11 — 2026-11-09

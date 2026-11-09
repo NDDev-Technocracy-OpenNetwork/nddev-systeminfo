@@ -1,0 +1,43 @@
+# std-0001 repository manifest — schema: `nddev schema manifest`.
+apiVersion: nddev.ai/v1alpha4
+kind: Repository
+metadata:
+  id: nddev-systeminfo
+  owner: NDDev-Technocracy-OpenNetwork
+  locator: github:NDDev-Technocracy-OpenNetwork/nddev-systeminfo
+spec:
+  standard:
+    id: std-0001
+  role: standalone
+  profiles:
+  - rust
+  - id: python
+    path: python
+  lifecycle: active
+  decisions: docs/decisions
+  modules:
+  - crates/contract
+  - crates/native
+  - daemon
+  - extension
+  - macos
+  - python
+  - tools
+  provides:
+  - name: snapshot-v1
+    source: contracts/snapshot-v1.schema.json
+    direction: schema-first
+    generated:
+    - extension/lib/contract.js
+    - macos/Sample.swift
+  - name: native-configuration
+    source: config/default.toml
+    direction: schema-first
+    generated:
+    - daemon/src/config/defaults.rs
+  - name: localization-keys
+    source: locales/en.json
+    direction: schema-first
+  - name: desktop-entry
+    source: packaging/linux/nddev-systeminfo.desktop
+    direction: schema-first
