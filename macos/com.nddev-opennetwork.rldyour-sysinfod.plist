@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>com.nddev-opennetwork.rldyour-sysinfod</string>
-  <key>ProgramArguments</key><array><string>@HOME@/.local/bin/rldyour-sysinfod</string></array>
+  <key>ProgramArguments</key><array><string>@HOME@/.local/bin/nddev-systeminfod</string></array>
   <!-- Socket activation, the same model systemd uses on Linux: launchd owns
        the socket, spawns the daemon on the first connection, and the daemon
        exits again once the last client has been gone for thirty seconds.
