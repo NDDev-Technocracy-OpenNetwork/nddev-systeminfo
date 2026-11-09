@@ -9,7 +9,7 @@ permissions: {}
 
 jobs:
   scan:
-    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/security.yml@10d15966361c89bbf092a67023dd1476447ca2b2
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/security.yml@75cdd0701413ce71ee3817dbed30094fb174906a # v0.6.26
     permissions:
       contents: read
       issues: write

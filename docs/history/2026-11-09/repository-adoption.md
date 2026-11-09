@@ -1,9 +1,9 @@
-Historical record; current manifests, source and GitHub Releases are authoritative.
+Historical record; current source, guides and GitHub Releases are authoritative.
 
 # Standalone repository completion
 
-The standalone product adopts its current `.nds/nddev.yaml` manifest and
-explicit local responsibility boundaries. The archived GDS projections have no
+Version 0.3.12 introduced a repository projection and explicit local
+responsibility boundaries. The archived GDS projections have no
 NDS runtime reader and are retired rather than renamed into another format.
 GitHub repository identity, immutable versions and live v1 consumers remain.
 An initial provenance repair was superseded after checking the actual reader
@@ -31,3 +31,18 @@ policy. See the [GIO launch contract](https://docs.gtk.org/gio/vfunc.AppInfo.lau
 Source and structural checks precede native CI on Linux, macOS ARM/Intel and
 Windows. Native installed acceptance remains separate from structural
 conformance; CI does not certify every physical GPU or firmware.
+
+The following patch removes the unused repository projection and archive ledger
+after retirement of their only verifier. Neither runtime nor CI reads them.
+The earlier journal content stays in [dated history](release-journal.md); Git
+retains the retired metadata. Accepted decisions live in `docs/adr/` and keep
+their recorded meaning. Current module guides and authored configuration remain.
+
+The patch selects the released shared CI workflows at
+[0.6.26](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-ci/releases/tag/v0.6.26),
+commit 75cdd0701413ce71ee3817dbed30094fb174906a. Its check and daily security
+entrypoints retain the project's native platform jobs and immutable delivery.
+Package version 0.3.13 is generated from the workspace; metric, settings,
+history, presentation and integration behavior are unchanged. The earlier
+0.3.12 release stays immutable; final device selection follows the next
+qualified patch, with one physical installation.
