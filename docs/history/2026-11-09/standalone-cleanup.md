@@ -25,3 +25,11 @@ Source checks and the existing real native installation, repeated-upgrade,
 sampling and UI matrix qualify this patch before publication. Runtime cleanup
 uses explicit ownership and reference checks; private device inventories and
 receipts stay outside this repository.
+
+A second media pass found docs/panel.png, an unreferenced image of the earlier
+panel. It was removed from current documents; Git retains the historical asset.
+No application, contract or native lifecycle behavior changes with its removal.
+
+Routine dependency proposals now use a three-day settling window in each
+existing Cargo, Actions and Python updater entry. Package and action pins
+continue to be qualified before adoption.
