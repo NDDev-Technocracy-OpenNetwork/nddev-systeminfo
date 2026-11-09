@@ -8,6 +8,7 @@ mod debian;
 mod delivery;
 mod install_test;
 mod linux_ui;
+mod native_swift;
 mod packaging;
 mod resources;
 mod windows_msi;
@@ -637,6 +638,7 @@ fn ui_resource() -> Result<String> {
     Ok(serde_json::to_string_pretty(&data)? + "\n")
 }
 fn check() -> Result {
+    native_swift::check_manifest()?;
     for name in ["LICENSE", "NOTICE"] {
         if fs::read(name)? != fs::read(Path::new("python").join(name))? {
             return Err("generated SDK license notices drifted; run just generate".into());
@@ -845,6 +847,7 @@ fn build_binaries(release: bool) -> Result<BTreeMap<String, PathBuf>> {
 fn run() -> Result {
     match std::env::args().nth(1).as_deref() {
         Some("setup") => setup(),
+        Some("native-swift") => native_swift::setup(),
         Some("generate") => generate(),
         Some("check") => check(),
         Some("test") => test(),

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.9 — 2026-11-09
+
+- Select and qualify the compatible serde_spanned/toml_datetime 1.1.2 patch
+  family for TOML 1.2 configuration, native installation and packaging.
+- Build the native Mac interface with the declared, signed Swift distribution;
+  verify its version and keep compiler-toolchain paths out of shipped binaries.
+- Keep existing GPU, logical-core, bounded history and native UI behavior.
+
 ## 0.3.8 — 2026-11-09
 
 - Restore utilization, temperature, memory and names from awake NVIDIA adapters

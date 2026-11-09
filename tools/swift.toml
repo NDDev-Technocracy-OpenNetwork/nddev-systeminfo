@@ -1,0 +1,5 @@
+# Native compiler distribution; source: https://www.swift.org/install/macos/
+version = "6.4.2"
+url = "https://download.swift.org/swift-6.4.2-release/xcode/swift-6.4.2-RELEASE/swift-6.4.2-RELEASE-osx.pkg"
+sha256 = "0a7d8489900d21dbf5f0187cb570e646a4c0226d0ddef2cbde8c7f54dfe79736"
+signer = "Developer ID Installer: Swift Open Source (V9AUD2URP3)"
