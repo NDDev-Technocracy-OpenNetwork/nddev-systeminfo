@@ -7,9 +7,10 @@ updates:
     cooldown:
       default-days: 3
   - package-ecosystem: github-actions
+    target-branch: dev
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     cooldown:
       default-days: 3
   - package-ecosystem: pip

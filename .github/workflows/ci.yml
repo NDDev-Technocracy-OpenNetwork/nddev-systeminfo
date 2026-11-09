@@ -15,10 +15,11 @@ concurrency:
 
 jobs:
   check:
-    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@75cdd0701413ce71ee3817dbed30094fb174906a # v0.6.26
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@52d8302d2272967a21fd8e3ae594205588648777 # v0.6.28
     permissions:
       contents: read
     with:
+      hosted-runner: ubuntu-24.04
       setup: true
 
   daemon:
