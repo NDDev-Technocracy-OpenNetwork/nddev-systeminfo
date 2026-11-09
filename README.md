@@ -21,6 +21,21 @@ CPU, memory, swap, GPU, temperatures, disk and network rates use the same
 [versioned local contract](docs/protocol.md). Unavailable readings are `null`;
 disconnected interfaces clear their numbers immediately.
 
+## Source ownership
+
+| Boundary | Responsibility |
+| --- | --- |
+| [Contract](crates/contract/README.md) | Shared wire types and analysis |
+| [Native access](crates/native/README.md) | Platform collection and owned handles |
+| [Provider and clients](daemon/README.md) | One sampler, CLI, configuration, history and installation |
+| [GNOME](extension/README.md) | Panel, preferences and GTK analysis |
+| [macOS](macos/README.md) | AppKit presentation and manager templates |
+| [Python SDK](python/README.md) | Optional local client |
+| [Tools](tools/README.md) | Generation, qualification, packages and delivery |
+
+The repository manifest is [.nds/nddev.yaml](.nds/nddev.yaml). Current release
+history belongs to [GitHub Releases](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo/releases).
+
 ## Install
 
 Download the matching qualified archive and `SHA256SUMS` from
@@ -202,4 +217,4 @@ See [quality](docs/quality.md), [native presentation](docs/native-ui.md) and
 [delivery](docs/delivery.md) for scope and evidence requirements.
 
 Current source is Apache-2.0 with [NOTICE](NOTICE) and
-[third-party notices](THIRD_PARTY_NOTICES.md).
+[third-party notices](NOTICE.third-party.md).

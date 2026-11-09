@@ -1,5 +1,6 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import St from 'gi://St';
 import Pango from 'gi://Pango';
@@ -194,8 +195,12 @@ export const Indicator = GObject.registerClass(class Indicator extends PanelMenu
     _openAnalysis(metric) {
         this.menu.close();
         try {
-            const child = Gio.Subprocess.new(['gjs', '-m', `${this._settings.root}/analysis-window.js`, '--metric', metric], Gio.SubprocessFlags.NONE);
-            child.wait_async(null, (source, result) => { try { source.wait_finish(result); } catch { /* Owned launch is reaped. */ } });
+            const argv = ['gjs', '-m', `${this._settings.root}/analysis-window.js`, '--metric', metric];
+            // GIO supplies the compositor's activation token and owns child reaping.
+            // Desktop-entry percent expansion is separate from argument quoting.
+            const command = argv.map(argument => GLib.shell_quote(argument.replaceAll('%', '%%'))).join(' ');
+            const app = Gio.AppInfo.create_from_commandline(command, this._settings.text('app_title'), Gio.AppInfoCreateFlags.SUPPORTS_STARTUP_NOTIFICATION);
+            app.launch([], global.create_app_launch_context(0, -1));
         } catch { this._status.label.text = this._settings.text('error'); }
     }
     _teardown() {

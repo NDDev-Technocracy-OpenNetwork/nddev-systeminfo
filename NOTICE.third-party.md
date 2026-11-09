@@ -16,6 +16,6 @@ the corresponding crates.
 
 The original OpenNetwork design tokens and brand geometry are Apache-2.0,
 copyright 2026 Danil Silantyev, NDDev. The exact source is pinned in
-`design-system.toml`; native resource projections are generated from that
+`config/design-system.toml`; native resource projections are generated from that
 package. Native interfaces use platform fonts; no third-party font file or
 third-party icon is bundled by this projection.

@@ -28,7 +28,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-26, macos-26-intel, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -51,7 +51,8 @@ jobs:
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libglib2.0-bin
       - name: Native installation lifecycle
-        timeout-minutes: 4
+        # Includes release compilation and native Swift packaging on cold runners.
+        timeout-minutes: 8
         run: cargo run --locked --package systeminfo-tools -- install-test
       - name: Real Windows menu acceptance
         if: ${{ !cancelled() && runner.os == 'Windows' }}

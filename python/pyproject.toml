@@ -18,7 +18,7 @@ license-files = [
 name = "rldyour-sysinfo"
 readme = "README.md"
 requires-python = ">=3.9"
-version = "0.3.11"
+version = "0.3.12"
 
 [[project.authors]]
 name = "NDDev OpenNetwork"

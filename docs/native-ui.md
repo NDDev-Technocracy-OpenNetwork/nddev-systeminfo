@@ -6,7 +6,7 @@ in [#39](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo/issue
 
 ## Shared source
 
-`design-system.toml` identifies the released public OpenNetwork package. Cargo
+`config/design-system.toml` identifies the released public OpenNetwork package. Cargo
 pins its exact revision and version. `systeminfo-tools generate` projects only
 the used desktop colors, metrics and original brand geometry into native
 resources. The source check compares generated resources with their inputs;

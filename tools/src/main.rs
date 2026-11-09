@@ -524,7 +524,7 @@ fn ui_resource() -> Result<String> {
         }
         catalogs.insert(code.into(), serde_json::to_value(catalog)?);
     }
-    let source: toml::Value = toml::from_str(&fs::read_to_string("design-system.toml")?)?;
+    let source: toml::Value = toml::from_str(&fs::read_to_string("config/design-system.toml")?)?;
     let manifest: toml::Value = toml::from_str(&fs::read_to_string("Cargo.toml")?)?;
     let dependency = &manifest["workspace"]["dependencies"]["nddev-opennetwork-design-tokens"];
     if dependency["git"] != source["repository"] || dependency["rev"] != source["revision"] {
@@ -558,7 +558,7 @@ fn ui_resource() -> Result<String> {
         );
     }
     let defaults: toml::Value = toml::from_str(&fs::read_to_string("config/default.toml")?)?;
-    let product: Value = serde_json::from_str(&fs::read_to_string("product.json")?)?;
+    let product: Value = serde_json::from_str(&fs::read_to_string("config/product.json")?)?;
     let website = product["website"].as_str().ok_or("website missing")?;
     let application_id = product["application_id"]
         .as_str()
@@ -645,7 +645,6 @@ fn check() -> Result {
         }
     }
     let version = version()?;
-    delivery::release_notes(&fs::read_to_string("CHANGELOG.md")?, &version)?;
     if fs::read_to_string("daemon/src/config/defaults.rs")? != rust_defaults()? {
         return Err("compiled defaults drifted; run just generate".into());
     }

@@ -6,8 +6,9 @@ use std::{io, path::Path, process::Command};
 pub fn application_id() -> &'static str {
     static ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     ID.get_or_init(|| {
-        let product: serde_json::Value = serde_json::from_str(include_str!("../../product.json"))
-            .expect("checked product metadata");
+        let product: serde_json::Value =
+            serde_json::from_str(include_str!("../../config/product.json"))
+                .expect("checked product metadata");
         product["application_id"]
             .as_str()
             .expect("checked application identity")
