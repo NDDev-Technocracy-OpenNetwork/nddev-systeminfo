@@ -241,7 +241,13 @@ fn qualified(
         return Err("CI qualification jobs missing".into());
     }
     for job in qualification {
-        let expected_skip = job["name"] == "check / merge stops" && job["conclusion"] == "skipped";
+        // The extracted PR-only workflow adds one nesting level. Keep the
+        // original identity for recovery of already published qualification runs.
+        let expected_skip = job["conclusion"] == "skipped"
+            && matches!(
+                job["name"].as_str(),
+                Some("check / merge stops" | "check / merge-stops / merge stops")
+            );
         if job["status"] != "completed" || !(job["conclusion"] == "success" || expected_skip) {
             return Err(format!("qualification job did not pass: {}", job["name"]).into());
         }
@@ -834,6 +840,19 @@ mod tests {
             json!({"name":"Release / Publish verified artifacts","status":"in_progress","conclusion":null}),
         ];
         assert!(qualified(&run, &jobs, &config, &sha, "Release / ").is_ok());
+        let mut extracted = jobs.clone();
+        extracted[1]["name"] = json!("check / merge-stops / merge stops");
+        assert!(qualified(&run, &extracted, &config, &sha, "Release / ").is_ok());
+        for name in ["check / merge-stops", "check / another skipped job"] {
+            let mut changed = extracted.clone();
+            changed[1]["name"] = json!(name);
+            assert!(qualified(&run, &changed, &config, &sha, "Release / ").is_err());
+        }
+        for conclusion in ["failure", "cancelled"] {
+            let mut changed = extracted.clone();
+            changed[1]["conclusion"] = json!(conclusion);
+            assert!(qualified(&run, &changed, &config, &sha, "Release / ").is_err());
+        }
         for (pointer, invalid) in [
             ("/event", json!("pull_request")),
             ("/head_branch", json!("main")),

@@ -12,6 +12,10 @@ digest and streams bounded, unique filenames to owned files. It produces
 `provenance.json` and `SHA256SUMS`. Product binaries and packages are never
 rebuilt during promotion.
 
+Only the PR-only merge guard may be skipped on a dev push; native platform jobs
+must pass. Recovery also recognizes the guard's original job identity from
+earlier published qualification runs.
+
 The publisher executes only from the maintained `dev` branch. A qualified
 revision's version is read as Git data; workflow inputs never choose source
 code to execute with write permissions. Immutable provenance
