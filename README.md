@@ -192,7 +192,7 @@ The macOS frontend additionally requires AppKit and the compiler declared in
 `cargo run --locked --package systeminfo-tools -- native-swift` verifies the
 official package checksum and publisher, installs into the build user's
 toolchain directory and exposes its compiler selection to subsequent CI steps.
-In another build shell, set `TOOLCHAINS` to the identifier printed by that command.
+In another build shell, set `TOOLCHAINS` and `SDKROOT` to the values printed by that command.
 The SDK selection stays unchanged; product installation never installs a compiler.
 
 `systeminfo-tools package` creates the native distribution; `deb` creates the

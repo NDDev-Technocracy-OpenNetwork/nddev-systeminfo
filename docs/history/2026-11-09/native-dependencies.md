@@ -46,3 +46,9 @@ SDK before publication; this record does not predeclare its result.
 
 Primary sources: [Swift package installation and publisher identity](https://www.swift.org/install/macos/package_installer/)
 and [Swift driver rpath options](https://github.com/swiftlang/swift-driver/blob/main/Sources/SwiftOptions/Options.swift).
+
+The first native attempt installed and selected Swift 6.4.2 successfully, then
+reported no AppKit module because the standalone driver did not infer the
+image's SDK. The helper now passes the existing xcrun macOS SDK path explicitly
+through SDKROOT, without selecting or installing a different SDK. Native
+qualification covers this binding before the patch can publish.

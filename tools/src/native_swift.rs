@@ -156,8 +156,21 @@ pub(super) fn setup() -> Result {
     {
         return Err("invalid native Swift toolchain identity".into());
     }
+    let output = Command::new("xcrun")
+        .args(["--sdk", "macosx", "--show-sdk-path"])
+        .output()?;
+    let sdk = String::from_utf8(output.stdout)?;
+    let sdk = sdk.trim();
+    if !output.status.success()
+        || !Path::new(sdk).is_absolute()
+        || !Path::new(sdk).is_dir()
+        || sdk.contains(['\n', '\r'])
+    {
+        return Err("the existing native macOS SDK is unavailable".into());
+    }
     for (name, line) in [
         ("GITHUB_ENV", format!("TOOLCHAINS={identifier}")),
+        ("GITHUB_ENV", format!("SDKROOT={sdk}")),
         (
             "GITHUB_PATH",
             fs::canonicalize(bin)?.to_string_lossy().into_owned(),
@@ -169,6 +182,7 @@ pub(super) fn setup() -> Result {
     }
     command("xcrun", &["--sdk", "macosx", "--show-sdk-version"])?;
     println!("TOOLCHAINS={identifier}");
+    println!("SDKROOT={sdk}");
     println!("verified compiler installed; CI selection recorded when available; SDK unchanged");
     Ok(())
 }
