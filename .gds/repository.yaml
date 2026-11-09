@@ -1,24 +1,26 @@
 schema_version: 1
 repository:
   id: repo_01M0QNDKJHAP2DNES9XMCA4Q6V
-  display_name: rldyour-sysinfo
+  display_name: NDDev Systeminfo
   roles:
   - project
   lifecycle: active
 provider:
   type: github
-  installation: installation:github-nddev-technocracy-archive
-  owner: NDDev-Technocracy-Archive
+  installation: installation:github-nddev-technocracy-opennetwork
+  owner: NDDev-Technocracy-OpenNetwork
   repository_id: 1333577156
-  name: rldyour-sysinfo
+  name: nddev-systeminfo
   aliases:
+  - owner: NDDev-Technocracy-Archive
+    name: rldyour-sysinfo
   - owner: NDDev-Technocracy-OpenNetwork
     name: rldyour-sysinfo
   - owner: NDDev-Technocracy-Sandbox
     name: rldyour-sysinfo
 classification:
   portfolios:
-  - portfolio:nddev-technocracy-archive
+  - portfolio:nddev-technocracy-opennetwork
   visibility_contract: public
   data_classification: public
 product:
@@ -30,7 +32,7 @@ policy:
   - organization-default
   rollout_ring: standard
 git:
-  default_branch: main
+  default_branch: dev
   integration: pull-request
   branch_model: task-branches
   handoff_pr: preferred
@@ -39,7 +41,8 @@ agent:
   context_profile: project-default
   generated_agents: false
   serena:
-    enabled: true
+    enabled: false
     provenance_required: true
 release:
-  mode: none
+  mode: github-release
+  tag_style: v-semver
