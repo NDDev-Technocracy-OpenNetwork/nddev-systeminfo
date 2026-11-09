@@ -33,8 +33,7 @@ disconnected interfaces clear their numbers immediately.
 | [Python SDK](python/README.md) | Optional local client |
 | [Tools](tools/README.md) | Generation, qualification, packages and delivery |
 
-The repository manifest is [.nds/nddev.yaml](.nds/nddev.yaml). Current release
-history belongs to [GitHub Releases](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo/releases).
+Current release history belongs to [GitHub Releases](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-systeminfo/releases).
 
 ## Install
 

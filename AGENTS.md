@@ -1,7 +1,7 @@
 # NDDev Systeminfo
 
 An independent, read-only Linux/macOS/Windows system-information product. Read
-README.md, docs/protocol.md and docs/decisions before changing its contracts.
+README.md, docs/protocol.md and docs/adr before changing its contracts.
 Keep collection independent of NDS initialization, identity and credentials.
 
 The owner approved native GNOME, AppKit and Windows tray presentation and the
