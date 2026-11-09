@@ -53,7 +53,7 @@ final class AnalysisReader: @unchecked Sendable {
         self.callback = callback
         limit = resource.analysis.frameBytes
         version = resource.analysis.viewVersion
-        queue.async {
+        queue.async { [self] in
             guard !self.stopped else { return }
             let child = Process()
             let pipe = Pipe()

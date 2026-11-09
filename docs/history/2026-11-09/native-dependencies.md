@@ -19,8 +19,8 @@ present only in the complete lock were absent from these four enabled graphs;
 they are not new activated runtime technologies. A Rust package's registry
 identity remains distinct from an unrelated npm package with the same name.
 
-Collection, history retention, analysis algorithms and native presentation code
-remain unchanged. Earlier resource and hour-long retention records retain their
+Collection, history retention and analysis algorithms remain unchanged.
+Native presentation behavior is preserved. Earlier resource and hour-long retention records retain their
 exact source identities; they are not relabeled as measurements of 0.3.9.
 The complete native install/configuration/UI/package matrix and immutable
 delivery must pass again before selecting this patch for native installations.
@@ -52,3 +52,9 @@ reported no AppKit module because the standalone driver did not infer the
 image's SDK. The helper now passes the existing xcrun macOS SDK path explicitly
 through SDKROOT, without selecting or installing a different SDK. Native
 qualification covers this binding before the patch can publish.
+
+With the SDK bound, Swift 6.4.2 imports AppKit and checks the actual sources.
+Its stricter capture diagnostic requires the startup queue closure to declare
+its existing strong self capture explicitly; the descriptor event handler
+remains weak to prevent a cycle. This preserves startup/stop ownership and is
+qualified by the native pause/close and repeated-upgrade journeys.
