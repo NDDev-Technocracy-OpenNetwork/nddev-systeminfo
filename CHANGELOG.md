@@ -3,6 +3,7 @@
 ## 0.3.11 — 2026-11-09
 
 - Remove the unreferenced capture of the retired panel from current documents.
+- Use a three-day settling window for routine dependency-update proposals.
 - Preserve the qualified native behavior, installation and integration contracts.
 
 ## 0.3.10 — 2026-11-09
