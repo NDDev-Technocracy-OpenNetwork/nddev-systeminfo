@@ -206,21 +206,12 @@ pub(super) fn install(source: &Path, manifest: &Manifest, provider_only: bool) -
         } else {
             include_str!("../../../macos/com.nddev-opennetwork.rldyour-sysinfo.plist")
         };
-        let text = template
-            .replace(
-                "@HOME@",
-                &xml(home
-                    .to_str()
-                    .ok_or(InstallError::Invalid("home path is not Unicode"))?),
-            )
-            .replace(
-                "/.local/bin/rldyour-sysinfod",
-                "/.local/bin/nddev-systeminfod",
-            )
-            .replace(
-                "/Applications/rldyour-sysinfo.app/Contents/MacOS/rldyour-sysinfo",
-                "/Applications/NDDev Systeminfo.app/Contents/MacOS/nddev-systeminfo-app",
-            );
+        let text = template.replace(
+            "@HOME@",
+            &xml(home
+                .to_str()
+                .ok_or(InstallError::Invalid("home path is not Unicode"))?),
+        );
         atomic(&agent(name)?, text.as_bytes(), false)?;
         run(
             "plutil",

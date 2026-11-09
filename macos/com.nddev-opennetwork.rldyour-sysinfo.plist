@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>com.nddev-opennetwork.rldyour-sysinfo</string>
-  <key>ProgramArguments</key><array><string>@HOME@/Applications/rldyour-sysinfo.app/Contents/MacOS/rldyour-sysinfo</string></array>
+  <key>ProgramArguments</key><array><string>@HOME@/Applications/NDDev Systeminfo.app/Contents/MacOS/nddev-systeminfo-app</string></array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
 </dict></plist>

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.10 — 2026-11-09
+
+- Make native Mac launch templates name the shipped executables directly and
+  remove obsolete installation-time path rewriting.
+- Remove superseded project memories and use the standalone product name for
+  native application source and qualification output.
+- Preserve settings, startup state, v1 integration identities and the supported
+  client/upgrade contracts.
+
 ## 0.3.9 — 2026-11-09
 
 - Select and qualify the compatible serde_spanned/toml_datetime 1.1.2 patch
