@@ -157,6 +157,7 @@ pub(super) fn package() -> Result<PathBuf> {
     Ok(root)
 }
 fn macos(root: &Path, version: &str) -> Result {
+    crate::native_swift::verify_current()?;
     let app = root.join("ui/NDDev Systeminfo.app");
     let executables = app.join("Contents/MacOS");
     fs::create_dir_all(&executables)?;
@@ -173,6 +174,7 @@ fn macos(root: &Path, version: &str) -> Result {
         "6".into(),
         "-parse-as-library".into(),
         "-warnings-as-errors".into(),
+        "-no-toolchain-stdlib-rpath".into(),
         "-O".into(),
         "-framework".into(),
         "AppKit".into(),
@@ -193,6 +195,7 @@ fn macos(root: &Path, version: &str) -> Result {
         "swiftc",
         &arguments.iter().map(String::as_str).collect::<Vec<_>>(),
     )?;
+    crate::native_swift::verify_binary(&output)?;
     copy(
         root.join("bin/nddev-systeminfo"),
         executables.join("nddev-systeminfo"),

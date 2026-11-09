@@ -28,3 +28,21 @@ delivery must pass again before selecting this patch for native installations.
 Native Apple CI now records the actual Swift compiler identity before both
 package and presentation qualification. A runner image label is not used as
 a substitute for the compiler that produced the native application.
+
+The first measured image default was Apple Swift 6.3.3. The accepted compiler
+can be selected independently with Swift.org's official 6.4.2 signed macOS
+package, installed into the build user's Toolchains directory. Its streamed
+SHA-256 is pinned in tools/swift.toml; the installer also checks the publisher
+identity specified by the official package instructions. Temporary downloads
+are removed on success or failure. No user-device SDK or global Xcode selection
+is changed, and no Swiftly dependency is introduced.
+
+Production packaging checks the actual compiler version, explicitly excludes
+toolchain standard-library rpaths and inspects Mach-O linkage for compiler
+bundle paths. Native installation and AppKit tests must run against system
+libraries, rather than accidentally relying on a compiler installed on CI.
+The native matrix qualifies this selected compiler with the runner's existing
+SDK before publication; this record does not predeclare its result.
+
+Primary sources: [Swift package installation and publisher identity](https://www.swift.org/install/macos/package_installer/)
+and [Swift driver rpath options](https://github.com/swiftlang/swift-driver/blob/main/Sources/SwiftOptions/Options.swift).

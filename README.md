@@ -187,7 +187,13 @@ The repository pins Rust, dependencies, development tools and design resources.
 On a build host, `just setup` prepares checksum-verified tools; `just check` reads
 source without compiling; `just test` exercises real providers; `just verify`
 adds the release build. `just generate` updates derived resources from their homes.
-The macOS frontend additionally requires Swift 6 and AppKit.
+The macOS frontend additionally requires AppKit and the compiler declared in
+[tools/swift.toml](tools/swift.toml). On a Mac build host,
+`cargo run --locked --package systeminfo-tools -- native-swift` verifies the
+official package checksum and publisher, installs into the build user's
+toolchain directory and exposes its compiler selection to subsequent CI steps.
+In another build shell, set `TOOLCHAINS` to the identifier printed by that command.
+The SDK selection stays unchanged; product installation never installs a compiler.
 
 `systeminfo-tools package` creates the native distribution; `deb` creates the
 Debian packages. Native lifecycle acceptance runs on disposable CI accounts.
