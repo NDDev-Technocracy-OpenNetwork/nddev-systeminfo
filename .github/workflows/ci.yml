@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   check:
-    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@75cdd0701413ce71ee3817dbed30094fb174906a # v0.6.26
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@6038ed01530c24ab5f16390c7b2daab8c85fc7c5 # v0.6.29
     permissions:
       contents: read
     with:
