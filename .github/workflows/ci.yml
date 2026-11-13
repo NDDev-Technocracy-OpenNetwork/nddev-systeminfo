@@ -35,7 +35,7 @@ jobs:
           persist-credentials: false
       # Public runners use their GitHub cache. Trusted dev pushes populate it;
       # PRs only restore, and promotion never rebuilds main to warm a cache.
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.8.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: systeminfo-native-${{ matrix.os }}
           cache-bin: 'false'
