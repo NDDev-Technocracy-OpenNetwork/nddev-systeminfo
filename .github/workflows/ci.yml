@@ -20,6 +20,8 @@ jobs:
       contents: read
     with:
       setup: true
+      rust-version: 1.100.0
+      rust-components: clippy,rustfmt
 
   daemon:
     name: Daemon (${{ matrix.os }})
@@ -30,16 +32,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare native execution
+        id: prepare
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@6cf64d17c08dfc75392c55784b872fe9a6056553 # v0.6.57
         with:
-          persist-credentials: false
-      # Public runners use their GitHub cache. Trusted dev pushes populate it;
-      # PRs only restore, and promotion never rebuilds main to warm a cache.
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: systeminfo-native-${{ matrix.os }}
-          cache-bin: 'false'
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
+          rust-version: 1.100.0
+          rust-components: clippy,rustfmt
       - name: Select verified native Swift
         if: runner.os == 'macOS'
         timeout-minutes: 12
@@ -81,6 +79,16 @@ jobs:
           path: dist/nddev-systeminfo-*
           if-no-files-found: error
 
+      - name: Complete native execution
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@6cf64d17c08dfc75392c55784b872fe9a6056553 # v0.6.57
+        with:
+          status: ${{ job.status }}
+          project-outcome: ${{ steps.prepare.outcome == 'failure' && 'success' || job.status }}
+          task: daemon-${{ matrix.os }}
+          name: daemon-${{ matrix.os }}
+          read-token: ${{ steps.prepare.outputs.read-token }}
+
   platform-clients:
     name: Platform clients (${{ matrix.os }})
     strategy:
@@ -90,9 +98,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare native execution
+        id: prepare
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@6cf64d17c08dfc75392c55784b872fe9a6056553 # v0.6.57
         with:
-          persist-credentials: false
+          rust-version: 1.100.0
+          rust-components: clippy,rustfmt
       - name: Select verified native Swift
         timeout-minutes: 12
         run: cargo run --locked --package systeminfo-tools -- native-swift
@@ -121,6 +132,16 @@ jobs:
           path: ${{ runner.temp }}/systeminfo-ui
           if-no-files-found: error
 
+      - name: Complete native execution
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@6cf64d17c08dfc75392c55784b872fe9a6056553 # v0.6.57
+        with:
+          status: ${{ job.status }}
+          project-outcome: ${{ steps.prepare.outcome == 'failure' && 'success' || job.status }}
+          task: platform-clients-${{ matrix.os }}
+          name: platform-clients-${{ matrix.os }}
+          read-token: ${{ steps.prepare.outputs.read-token }}
+
   python-client:
     name: Python client (${{ matrix.os }})
     strategy:
@@ -130,17 +151,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare native execution
+        id: prepare
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@6cf64d17c08dfc75392c55784b872fe9a6056553 # v0.6.57
         with:
-          persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
+          rust-version: 1.100.0
+          rust-components: clippy,rustfmt
           python-version: '3.15.2'
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          version: '0.13.8'
-          # Only one pinned pytest wheel is fetched; a cache would cost more than it saves.
-          enable-cache: 'false'
+          uv-version: '0.13.8'
       - name: Run the test suite
         shell: bash
         run: PYTHONPATH=python/src uv run --no-project --with pytest==9.2.0 pytest python/tests
@@ -155,14 +173,27 @@ jobs:
           path: python/dist/*
           if-no-files-found: error
 
+      - name: Complete native execution
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@6cf64d17c08dfc75392c55784b872fe9a6056553 # v0.6.57
+        with:
+          status: ${{ job.status }}
+          project-outcome: ${{ steps.prepare.outcome == 'failure' && 'success' || job.status }}
+          task: python-client-${{ matrix.os }}
+          name: python-client-${{ matrix.os }}
+          read-token: ${{ steps.prepare.outputs.read-token }}
+
   debian-package:
     name: Debian package
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare native execution
+        id: prepare
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@6cf64d17c08dfc75392c55784b872fe9a6056553 # v0.6.57
         with:
-          persist-credentials: false
+          rust-version: 1.100.0
+          rust-components: clippy,rustfmt
       - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y dpkg-dev apt-utils libglib2.0-bin init-system-helpers dbus-user-session
       - run: cargo run --locked --package systeminfo-tools -- deb-test
       - name: Real signed APT installation with a disposable key
@@ -173,14 +204,27 @@ jobs:
           path: dist/*.deb
           if-no-files-found: error
 
+      - name: Complete native execution
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@6cf64d17c08dfc75392c55784b872fe9a6056553 # v0.6.57
+        with:
+          status: ${{ job.status }}
+          project-outcome: ${{ steps.prepare.outcome == 'failure' && 'success' || job.status }}
+          task: debian-package
+          name: debian-package
+          read-token: ${{ steps.prepare.outputs.read-token }}
+
   gnome:
     name: Native GNOME UI
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare native execution
+        id: prepare
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@6cf64d17c08dfc75392c55784b872fe9a6056553 # v0.6.57
         with:
-          persist-credentials: false
+          rust-version: 1.100.0
+          rust-components: clippy,rustfmt
       - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y gnome-shell gnome-shell-extension-prefs gjs dbus-x11 libglib2.0-bin gir1.2-atspi-2.0 at-spi2-core librsvg2-common libgl1-mesa-dri libegl-mesa0 adwaita-icon-theme fonts-noto-core fonts-noto-cjk
       - name: Native protocol and async client checks
         run: |
@@ -199,6 +243,16 @@ jobs:
           name: gnome-native
           path: .tools/ui-linux
           if-no-files-found: error
+
+      - name: Complete native execution
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@6cf64d17c08dfc75392c55784b872fe9a6056553 # v0.6.57
+        with:
+          status: ${{ job.status }}
+          project-outcome: ${{ steps.prepare.outcome == 'failure' && 'success' || job.status }}
+          task: gnome
+          name: gnome
+          read-token: ${{ steps.prepare.outputs.read-token }}
 
   release:
     name: Release
