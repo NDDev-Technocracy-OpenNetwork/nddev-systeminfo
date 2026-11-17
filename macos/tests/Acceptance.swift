@@ -48,7 +48,7 @@ func runNativeAcceptance(_ app: AppDelegate) async throws {
         guard let analysis = app.acceptanceAnalysis, let window = analysis.window else { throw TestFailure.missingSetting }
         window.displayIfNeeded()
         if code == "en" { resources["window_open"] = processResources() }
-        try captureWindow(window, folder.appendingPathComponent("analysis-\(code)-\(theme).png"))
+        try await captureWindow(window, folder.appendingPathComponent("analysis-\(code)-\(theme).png"))
     }
     guard let analysis = app.acceptanceAnalysis,
           let core = analysis.acceptanceView?.latest?.detail.cores.first else { throw TestFailure.missingSetting }
@@ -62,7 +62,7 @@ func runNativeAcceptance(_ app: AppDelegate) async throws {
     resources["paused"] = processResources()
     analysis.acceptancePause()
     try await until { !analysis.acceptancePaused && analysis.acceptanceHasReader }
-    try captureWindow(analysis.window!, folder.appendingPathComponent("logical-core.png"))
+    try await captureWindow(analysis.window!, folder.appendingPathComponent("logical-core.png"))
     analysis.close()
     precondition(app.acceptanceAnalysis == nil)
     try await select("sampling.interval_seconds", "0")
@@ -103,13 +103,19 @@ private func processResources() -> [String: Int] {
     return ["ui_rss_kib":own,"child_rss_kib":childRSS,"children":children.count]
 }
 @MainActor
-private func captureWindow(_ window: NSWindow, _ path: URL) throws {
+private func captureWindow(_ window: NSWindow, _ path: URL) async throws {
     window.displayIfNeeded()
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
     process.arguments = ["-x", "-l", String(window.windowNumber), path.path]
-    try process.run(); process.waitUntilExit()
-    guard process.terminationStatus == 0 && NSImage(contentsOf: path) != nil else { throw TestFailure.screenshot }
+    let successful: Bool = try await withCheckedThrowingContinuation { continuation in
+        process.terminationHandler = { completed in
+            continuation.resume(returning: completed.terminationStatus == 0)
+        }
+        do { try process.run() } catch { continuation.resume(throwing: error) }
+    }
+    process.terminationHandler = nil
+    guard successful && NSImage(contentsOf: path) != nil else { throw TestFailure.screenshot }
 }
 @MainActor
 private func until(_ predicate: () -> Bool) async throws {
@@ -124,6 +130,7 @@ private func captureMenu(_ menu: NSMenu, _ path: URL) throws {
     // Native tracking lays out and paints the actual menu. A queued capture runs
     // in its tracking mode, then cancels tracking so the scenario can continue.
     let capture = MenuCapture(menu: menu, path: path)
+    defer { capture.cancel() }
     capture.perform(#selector(MenuCapture.capture), with: nil, afterDelay: 0, inModes: [.eventTracking])
     menu.popUp(positioning: nil, at: NSPoint(x: 100, y: NSScreen.main!.visibleFrame.maxY - 30), in: nil)
     guard capture.captured else { throw TestFailure.screenshot }
@@ -134,6 +141,7 @@ private final class MenuCapture: NSObject {
     let menu: NSMenu
     let path: URL
     var captured = false
+    private var process: Process?
     let deadline = ProcessInfo.processInfo.systemUptime + 5
     init(menu: NSMenu, path: URL) { self.menu = menu; self.path = path }
     @objc func capture() {
@@ -152,11 +160,30 @@ private final class MenuCapture: NSObject {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         process.arguments = ["-x", "-l", String(number), path.path]
-        do {
-            try process.run()
-            process.waitUntilExit()
-            captured = process.terminationStatus == 0 && NSImage(contentsOf: path) != nil
-        } catch { captured = false }
+        // Synchronous waiting polls the default mode and starves menu tracking.
+        // Complete in the same mode while AppKit continues painting the real menu.
+        process.terminationHandler = { [weak self] completed in
+            let status = completed.terminationStatus
+            RunLoop.main.perform(inModes: [.eventTracking]) { [weak self] in
+                MainActor.assumeIsolated { self?.finished(status) }
+            }
+        }
+        self.process = process
+        print("native menu capture: window=\(number)")
+        do { try process.run() } catch {
+            self.process = nil
+            menu.cancelTracking()
+        }
+    }
+    private func finished(_ status: Int32) {
+        captured = status == 0 && NSImage(contentsOf: path) != nil
+        print("native menu capture: status=\(status), valid_image=\(captured)")
+        process = nil
         menu.cancelTracking()
+    }
+    func cancel() {
+        process?.terminationHandler = nil
+        if process?.isRunning == true { process?.terminate() }
+        process = nil
     }
 }
