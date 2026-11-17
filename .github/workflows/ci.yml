@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   check:
-    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@de3456fa347576fa72c0ad63c25d73f4d693271c # v0.6.58
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@c09f5939b8ca3ef1ddf72d825ff01d751e649292 # v0.6.60
     permissions:
       contents: read
     with:
@@ -34,7 +34,7 @@ jobs:
     steps:
       - name: Prepare native execution
         id: prepare
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@de3456fa347576fa72c0ad63c25d73f4d693271c # v0.6.58
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@c09f5939b8ca3ef1ddf72d825ff01d751e649292 # v0.6.60
         with:
           rust-version: 1.100.0
           rust-components: clippy,rustfmt
@@ -81,7 +81,7 @@ jobs:
 
       - name: Complete native execution
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@de3456fa347576fa72c0ad63c25d73f4d693271c # v0.6.58
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@c09f5939b8ca3ef1ddf72d825ff01d751e649292 # v0.6.60
         with:
           status: ${{ job.status }}
           project-outcome: ${{ steps.prepare.outcome == 'failure' && 'success' || job.status }}
@@ -100,7 +100,7 @@ jobs:
     steps:
       - name: Prepare native execution
         id: prepare
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@de3456fa347576fa72c0ad63c25d73f4d693271c # v0.6.58
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@c09f5939b8ca3ef1ddf72d825ff01d751e649292 # v0.6.60
         with:
           rust-version: 1.100.0
           rust-components: clippy,rustfmt
@@ -134,7 +134,7 @@ jobs:
 
       - name: Complete native execution
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@de3456fa347576fa72c0ad63c25d73f4d693271c # v0.6.58
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@c09f5939b8ca3ef1ddf72d825ff01d751e649292 # v0.6.60
         with:
           status: ${{ job.status }}
           project-outcome: ${{ steps.prepare.outcome == 'failure' && 'success' || job.status }}
@@ -153,7 +153,7 @@ jobs:
     steps:
       - name: Prepare native execution
         id: prepare
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@de3456fa347576fa72c0ad63c25d73f4d693271c # v0.6.58
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@c09f5939b8ca3ef1ddf72d825ff01d751e649292 # v0.6.60
         with:
           rust-version: 1.100.0
           rust-components: clippy,rustfmt
@@ -175,7 +175,7 @@ jobs:
 
       - name: Complete native execution
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@de3456fa347576fa72c0ad63c25d73f4d693271c # v0.6.58
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@c09f5939b8ca3ef1ddf72d825ff01d751e649292 # v0.6.60
         with:
           status: ${{ job.status }}
           project-outcome: ${{ steps.prepare.outcome == 'failure' && 'success' || job.status }}
@@ -190,7 +190,7 @@ jobs:
     steps:
       - name: Prepare native execution
         id: prepare
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@de3456fa347576fa72c0ad63c25d73f4d693271c # v0.6.58
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@c09f5939b8ca3ef1ddf72d825ff01d751e649292 # v0.6.60
         with:
           rust-version: 1.100.0
           rust-components: clippy,rustfmt
@@ -206,7 +206,7 @@ jobs:
 
       - name: Complete native execution
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@de3456fa347576fa72c0ad63c25d73f4d693271c # v0.6.58
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@c09f5939b8ca3ef1ddf72d825ff01d751e649292 # v0.6.60
         with:
           status: ${{ job.status }}
           project-outcome: ${{ steps.prepare.outcome == 'failure' && 'success' || job.status }}
@@ -221,7 +221,7 @@ jobs:
     steps:
       - name: Prepare native execution
         id: prepare
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@de3456fa347576fa72c0ad63c25d73f4d693271c # v0.6.58
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/prepare@c09f5939b8ca3ef1ddf72d825ff01d751e649292 # v0.6.60
         with:
           rust-version: 1.100.0
           rust-components: clippy,rustfmt
@@ -246,7 +246,7 @@ jobs:
 
       - name: Complete native execution
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@de3456fa347576fa72c0ad63c25d73f4d693271c # v0.6.58
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/complete@c09f5939b8ca3ef1ddf72d825ff01d751e649292 # v0.6.60
         with:
           status: ${{ job.status }}
           project-outcome: ${{ steps.prepare.outcome == 'failure' && 'success' || job.status }}
