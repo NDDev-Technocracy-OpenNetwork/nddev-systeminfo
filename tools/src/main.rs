@@ -10,6 +10,7 @@ mod install_test;
 mod linux_ui;
 mod native_swift;
 mod packaging;
+mod release_prepare;
 mod resources;
 mod windows_msi;
 use std::{
@@ -848,6 +849,11 @@ fn run() -> Result {
         Some("setup") => setup(),
         Some("native-swift") => native_swift::setup(),
         Some("generate") => generate(),
+        Some("prepare-release") => release_prepare::run(
+            &std::env::args()
+                .nth(2)
+                .ok_or("preparation needs the original base commit")?,
+        ),
         Some("check") => check(),
         Some("test") => test(),
         Some("ui-linux") => linux_ui::run(),

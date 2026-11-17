@@ -20,3 +20,7 @@ verify: check test
     cargo build --release --workspace --all-features --locked
 
 exe := if os() == "windows" { ".exe" } else { "" }
+
+# Prepare the next source-owned patch from the updater original base, without publishing.
+prepare-release base:
+    ./.tools/bin/systeminfo-tools{{ exe }} prepare-release {{ quote(base) }}

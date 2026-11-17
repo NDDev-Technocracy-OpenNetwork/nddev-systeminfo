@@ -57,3 +57,20 @@ pinned Git revision; the product is distributed as native packages.
 macOS bundles currently use an ad-hoc signature. Developer ID signing and
 notarization require a separately configured product signing identity. No
 credentials from another product are used.
+
+
+## Source identity preparation
+
+Before qualification, an ordinary updater branch runs
+just prepare-release BASE_SHA with its original full base commit. The project
+tools read that commit's workspace version, prepare its next patch once, update
+only self dependency identities and reuse generate for the existing owned
+metadata. Repeating the command for the same base preserves that next identity;
+a divergent version fails instead of guessing.
+
+Preparation preserves every external lock entry, comment and immutable release.
+It creates no tag, changes no stable branch and publishes no artifact. The
+prepared source must be committed before the full native qualification. Run
+new tool builds and producer tests on admitted build hosts; the source host
+uses already prepared build-free checks. The normal updater must qualify this
+bounded producer before relying on it for future input changes.
