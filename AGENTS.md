@@ -20,3 +20,7 @@ releases, settings, disabled state and the single owner of every native endpoint
 Keep public source generic; device inventories, credentials and private runtime
 evidence stay outside this repository. Track native analysis implementation and
 acceptance in #55; #39 retains the completed standalone rollout record.
+
+Ordinary source updates prepare their patch identity from the original update
+base through the project tools before qualification. External dependency pins,
+immutable releases and stable refs are outside that producer's output scope.
