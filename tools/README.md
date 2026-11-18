@@ -6,6 +6,12 @@ See the [product guide](../README.md), [protocol](../docs/protocol.md) and
 [quality contract](../docs/quality.md). Root `just check` reads source;
 native behavior and packaging are qualified on build hosts and CI.
 
+The workspace version owns the release identity. The manifest declares the matching
+GNOME, UI and Python version fields used during source preparation.
+When a checked dev revision uses a version already published from another commit,
+the automatic delivery job records that preparation is required. Publication takes
+the next prepared revision through the regular native and artifact checks.
+
 The source-owned prepare-release BASE_SHA command prepares only the next patch
 and existing derived metadata before qualification. Its base must be the normal
 update's original full commit. Publication remains exclusively with publish
