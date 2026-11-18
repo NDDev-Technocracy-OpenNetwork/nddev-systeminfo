@@ -392,6 +392,26 @@ pub(super) fn publish() -> Result {
     if let Some(existing) = &existing_tag
         && tag_commit(&github, existing)? != commit
     {
+        let preparation_selected = manifest
+            .get("workspace")
+            .and_then(|value| value.get("metadata"))
+            .and_then(|value| value.get("contour"))
+            .and_then(|value| value.get("source-version"))
+            .and_then(|value| value.get("schema-version"))
+            .and_then(toml::Value::as_integer)
+            == Some(2);
+        if preparation_selected
+            && std::env::var("SYSTEMINFO_PREPARE_CONSUMED_VERSION").as_deref() == Ok("true")
+        {
+            let output = std::env::var_os("GITHUB_OUTPUT").ok_or("delivery output missing")?;
+            let mut output = fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(output)?;
+            writeln!(output, "latest=false")?;
+            println!("Source preparation required for {tag} on {commit}");
+            return Ok(());
+        }
         return Err("published version belongs to another immutable commit".into());
     }
     let existing_release = github.release(&tag)?;

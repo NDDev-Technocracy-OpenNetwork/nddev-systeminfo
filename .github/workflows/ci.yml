@@ -265,3 +265,4 @@ jobs:
     with:
       qualification_run_id: ${{ github.run_id }}
       expected_commit: ${{ github.sha }}
+      prepare_consumed_version: true

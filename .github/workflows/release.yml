@@ -9,6 +9,9 @@ on:
       expected_commit:
         type: string
         required: true
+      prepare_consumed_version:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       qualification_run_id:
@@ -84,6 +87,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           QUALIFICATION_RUN_ID: ${{ needs.resolve.outputs.run_id }}
           QUALIFICATION_COMMIT: ${{ needs.resolve.outputs.commit }}
+          SYSTEMINFO_PREPARE_CONSUMED_VERSION: ${{ inputs.prepare_consumed_version }}
         run: ./.tools/bin/systeminfo-delivery publish
 
   apt:
