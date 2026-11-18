@@ -31,6 +31,29 @@ nddev-systeminfo-contract = { path = "crates/contract", version = "=0.3.16" }
 nddev-systeminfo-native = { path = "crates/native", version = "=0.3.16", default-features = false }
 nddev-systeminfo = { path = "daemon", version = "=0.3.16", default-features = false }
 
+[workspace.metadata.contour.source-version]
+schema-version = 2
+
+[[workspace.metadata.contour.source-version.derived]]
+path = "extension/metadata.json"
+maximum-bytes = 4096
+edit = { format = "json", strings = ["/version-name"], decimal-components = ["/version"] }
+
+[[workspace.metadata.contour.source-version.derived]]
+path = "extension/resources/ui.json"
+maximum-bytes = 65536
+edit = { format = "json", strings = ["/version"] }
+
+[[workspace.metadata.contour.source-version.derived]]
+path = "python/pyproject.toml"
+maximum-bytes = 8192
+edit = { format = "python-project" }
+
+[[workspace.metadata.contour.source-version.derived]]
+path = "python/src/rldyour_sysinfo/__init__.py"
+maximum-bytes = 16384
+edit = { format = "python-module" }
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 unreachable_pub = "warn"
