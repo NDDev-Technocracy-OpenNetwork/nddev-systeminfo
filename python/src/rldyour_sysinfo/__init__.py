@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, TypedDict
 
-__version__ = "0.3.22"
+__version__ = "0.3.23"
 MAX_LINE = 4096
 
 
