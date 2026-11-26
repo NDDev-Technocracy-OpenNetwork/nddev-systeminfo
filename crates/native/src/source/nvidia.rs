@@ -1,5 +1,5 @@
-//! NVML stays loaded only while an enabled, awake NVIDIA adapter needs it.
-//! Lazy initialization leaves enumeration to the already-awake PCI selection.
+//! NVML is initialized lazily once an enabled, awake NVIDIA adapter needs it, and kept alive across
+//! sleep/wake cycles so repeated init/shutdown calls cannot leak eventfd descriptors.
 use crate::proto::analysis::Gpu as Device;
 #[cfg(feature = "nvidia")]
 use crate::proto::analysis::MAX_GPUS;
@@ -31,6 +31,9 @@ impl Gpu {
     }
     pub(super) fn devices(&self) -> &[Device] {
         &self.devices
+    }
+    pub(super) fn clear_devices(&mut self) {
+        self.devices.clear();
     }
     pub(super) fn read_selected(&mut self, pci: Option<&[String]>) -> Option<Reading> {
         use nvml_wrapper::enum_wrappers::device::TemperatureSensor;
@@ -107,6 +110,7 @@ impl Gpu {
     pub(super) fn devices(&self) -> &[Device] {
         &[]
     }
+    pub(super) fn clear_devices(&mut self) {}
     pub(super) fn read_selected(&mut self, _pci: Option<&[String]>) -> Option<Reading> {
         None
     }
